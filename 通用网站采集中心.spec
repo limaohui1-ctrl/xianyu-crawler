@@ -16,6 +16,7 @@ a = Analysis(
         'ui_export_utils',
         'core_export',
         'core_database',
+        'core_ai_storage',
         'universal_self_test_runtime',
     ],
     hookspath=[],

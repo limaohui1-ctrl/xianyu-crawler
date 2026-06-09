@@ -18,7 +18,7 @@
 ## 验证
 
 ```powershell
-$files = @('main.py','universal_core.py','core_export.py','core_database.py','universal_ui.py','universal_self_test.py','universal_self_test_runtime.py','ui_ai_settings.py','ui_history.py','ui_exports.py','ui_queue.py','ui_ai_history.py','ui_export_utils.py') + (Get-ChildItem -LiteralPath 'legacy_xianyu' -Filter '*.py' | ForEach-Object { $_.FullName })
+$files = @('main.py','universal_core.py','core_export.py','core_database.py','core_ai_storage.py','universal_ui.py','universal_self_test.py','universal_self_test_runtime.py','ui_ai_settings.py','ui_history.py','ui_exports.py','ui_queue.py','ui_ai_history.py','ui_export_utils.py') + (Get-ChildItem -LiteralPath 'legacy_xianyu' -Filter '*.py' | ForEach-Object { $_.FullName })
 python -m py_compile @files
 python main.py --self-test
 python main.py --self-test --xianyu
@@ -38,6 +38,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_release.ps1
 - 通用自测已拆到 `universal_self_test.py`，AI 配置页构建已拆到 `ui_ai_settings.py`，历史与监控页构建已拆到 `ui_history.py`，导出/复制动作已拆到 `ui_exports.py`，任务队列/失败恢复动作已拆到 `ui_queue.py`，AI 调用日志/修复历史动作已拆到 `ui_ai_history.py`，导出路径补后缀逻辑已统一到 `ui_export_utils.py`；`universal_ui.py` 后续仍可继续拆出事件处理。
 - 核心导出实现已拆到 `core_export.py`，`universal_core.py` 仍重导出原有函数名，外部调用方式保持不变。
 - SQLite 数据库、运行档案和变更报告查询已拆到 `core_database.py`，`universal_core.py` 用兼容包装类保留原默认数据目录。
+- AI Key 本机加密、AI 调用日志和修复历史 JSONL 存储已拆到 `core_ai_storage.py`，`universal_core.py` 仍保留原函数名和运行时路径默认值。
 - 自测运行时目录隔离和旧文件清理已拆到 `universal_self_test_runtime.py`，主自测文件更聚焦断言流程。
 - 每次改动导出、AI Key、采集流程或打包脚本后，都需要跑完整自测。
 - 准备同步 GitHub 前，先确认 `.gitignore` 覆盖运行数据、采集结果和浏览器登录态。
