@@ -1055,6 +1055,34 @@ def list_to_text(value, limit=32000):
     return clean_text(json.dumps(value, ensure_ascii=False), limit)
 
 
+def assess_record_completeness(record):
+    record = record or {}
+    checks = [
+        ("标题", 15, bool(compact_text(record.get("title", ""), 300))),
+        ("正文", 25, len(compact_text(record.get("body", ""), 2000)) >= 40),
+        ("图片", 15, bool(record.get("images"))),
+        ("链接", 10, bool(record.get("links"))),
+        ("价格", 10, bool(compact_text(record.get("price", ""), 120))),
+        ("时间", 5, bool(compact_text(record.get("published_time", ""), 120))),
+        ("作者/来源", 5, bool(compact_text(record.get("author", ""), 120))),
+        ("表格/规格", 15, bool(record.get("tables")) or bool(record.get("simple_detail_enriched"))),
+    ]
+    score = sum(weight for _, weight, ok in checks if ok)
+    missing = [label for label, _, ok in checks if not ok]
+    if score >= 85:
+        label = f"{score}% 完整"
+    elif score >= 60:
+        label = f"{score}% 可用"
+    else:
+        label = f"{score}% 偏少"
+    return {
+        "score": score,
+        "label": label,
+        "missing": missing,
+        "summary": "缺少：" + "、".join(missing[:6]) if missing else "资料较完整",
+    }
+
+
 def default_provider_ai_settings(provider):
     preset = ai_preset_for(provider)
     return {
@@ -2790,6 +2818,11 @@ class UniversalExtractor:
             "error": "",
         }
         self.apply_template_rules(soup, url, record)
+        completeness = assess_record_completeness(record)
+        record["completeness_score"] = completeness["score"]
+        record["completeness_label"] = completeness["label"]
+        record["completeness_missing"] = completeness["missing"]
+        record["completeness_summary"] = completeness["summary"]
         record["fingerprint"] = content_fingerprint(record)
         return record
 

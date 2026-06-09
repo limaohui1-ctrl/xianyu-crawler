@@ -47,19 +47,23 @@ def row_to_record(row):
         "images",
         "links",
         "tables",
+        "completeness_score",
+        "completeness_label",
+        "completeness_missing",
         "fingerprint",
         "changed",
         "run_id",
         "error",
     ]
     record = dict(zip(keys, row))
-    for key in ("images", "links", "tables"):
+    for key in ("images", "links", "tables", "completeness_missing"):
         try:
             record[key] = json.loads(record.get(key) or "[]")
         except Exception:
             record[key] = []
     record["changed"] = bool(record.get("changed"))
     record["run_id"] = int(record.get("run_id") or 0)
+    record["completeness_score"] = int(record.get("completeness_score") or 0)
     return record
 
 
@@ -149,6 +153,9 @@ class CollectorDatabase:
                     images_json TEXT,
                     links_json TEXT,
                     tables_json TEXT,
+                    completeness_score INTEGER NOT NULL DEFAULT 0,
+                    completeness_label TEXT,
+                    completeness_missing_json TEXT,
                     fingerprint TEXT NOT NULL,
                     changed INTEGER NOT NULL DEFAULT 0,
                     run_id INTEGER NOT NULL DEFAULT 0,
@@ -159,6 +166,12 @@ class CollectorDatabase:
             columns = [row[1] for row in conn.execute("PRAGMA table_info(records)").fetchall()]
             if "run_id" not in columns:
                 conn.execute("ALTER TABLE records ADD COLUMN run_id INTEGER NOT NULL DEFAULT 0")
+            if "completeness_score" not in columns:
+                conn.execute("ALTER TABLE records ADD COLUMN completeness_score INTEGER NOT NULL DEFAULT 0")
+            if "completeness_label" not in columns:
+                conn.execute("ALTER TABLE records ADD COLUMN completeness_label TEXT")
+            if "completeness_missing_json" not in columns:
+                conn.execute("ALTER TABLE records ADD COLUMN completeness_missing_json TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_records_url ON records(url)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_records_domain ON records(domain)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_records_fingerprint ON records(fingerprint)")
@@ -206,8 +219,9 @@ class CollectorDatabase:
                 INSERT INTO records (
                     collected_at, url, domain, template_name, title, price,
                     published_time, author, body, images_json, links_json,
-                    tables_json, fingerprint, changed, run_id, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tables_json, completeness_score, completeness_label,
+                    completeness_missing_json, fingerprint, changed, run_id, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.get("collected_at", now_text()),
@@ -222,6 +236,9 @@ class CollectorDatabase:
                     safe_json(record.get("images", [])),
                     safe_json(record.get("links", [])),
                     safe_json(record.get("tables", [])),
+                    int(record.get("completeness_score") or 0),
+                    record.get("completeness_label", ""),
+                    safe_json(record.get("completeness_missing", [])),
                     fingerprint,
                     1 if changed else 0,
                     int(record.get("run_id") or 0),
@@ -317,7 +334,8 @@ class CollectorDatabase:
                 """
                 SELECT collected_at, url, domain, template_name, title, price,
                        published_time, author, body, images_json, links_json,
-                       tables_json, fingerprint, changed, run_id, error
+                       tables_json, completeness_score, completeness_label,
+                       completeness_missing_json, fingerprint, changed, run_id, error
                 FROM records ORDER BY id DESC LIMIT ?
                 """,
                 (int(limit),),
@@ -330,7 +348,8 @@ class CollectorDatabase:
                 """
                 SELECT collected_at, url, domain, template_name, title, price,
                        published_time, author, body, images_json, links_json,
-                       tables_json, fingerprint, changed, run_id, error
+                       tables_json, completeness_score, completeness_label,
+                       completeness_missing_json, fingerprint, changed, run_id, error
                 FROM records WHERE run_id = ? ORDER BY id DESC LIMIT ?
                 """,
                 (int(run_id or 0), int(limit)),
@@ -343,7 +362,8 @@ class CollectorDatabase:
                 """
                 SELECT collected_at, url, domain, template_name, title, price,
                        published_time, author, body, images_json, links_json,
-                       tables_json, fingerprint, changed, run_id, error
+                       tables_json, completeness_score, completeness_label,
+                       completeness_missing_json, fingerprint, changed, run_id, error
                 FROM records WHERE url = ? ORDER BY id DESC LIMIT ?
                 """,
                 (url, int(limit)),

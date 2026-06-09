@@ -199,7 +199,7 @@ def run_universal_self_test():
         window.simple_result_table.horizontalHeaderItem(column).text()
         for column in range(window.simple_result_table.columnCount())
     ]
-    if simple_headers != ["状态", "标题", "内容", "网址", "图片", "错误"]:
+    if simple_headers != ["状态", "标题", "内容", "网址", "图片", "完整度", "错误"]:
         raise AssertionError(f"普通人结果表仍暴露专家字段：{simple_headers}")
     window.simple_url_input.setPlainText("https://example.com/")
     window.simple_goal_input.setPlainText("抓标题、价格、正文、图片和链接")
@@ -277,19 +277,26 @@ def run_universal_self_test():
         raise AssertionError("后台采集结果未同步到普通人面板")
     if "示例正文" not in window.simple_result_table.item(0, 2).text():
         raise AssertionError("普通人面板未展示采集内容摘要")
-    if "共 1 条" not in window.simple_result_summary_label.text():
+    if "%" not in window.simple_result_table.item(0, 5).text():
+        raise AssertionError("普通人结果表未展示资料完整度")
+    if "共 1 条" not in window.simple_result_summary_label.text() or "平均完整度" not in window.simple_result_summary_label.text():
         raise AssertionError("普通人面板未显示结果摘要")
     if "Example Domain" not in window.simple_preview_title_label.text():
         raise AssertionError("普通人结果预览未展示标题")
     if "示例正文" not in window.simple_preview_body_output.toPlainText():
         raise AssertionError("普通人结果预览未展示正文")
-    if "图片 1" not in window.simple_preview_counts_label.text() or "链接 1" not in window.simple_preview_counts_label.text() or "表格 1" not in window.simple_preview_counts_label.text():
+    if (
+        "图片 1" not in window.simple_preview_counts_label.text()
+        or "链接 1" not in window.simple_preview_counts_label.text()
+        or "表格 1" not in window.simple_preview_counts_label.text()
+        or "完整度" not in window.simple_preview_counts_label.text()
+    ):
         raise AssertionError("普通人结果预览未展示资料数量")
     simple_field_headers = [
         window.simple_field_table.horizontalHeaderItem(column).text()
         for column in range(window.simple_field_table.columnCount())
     ]
-    for expected_header in ("网址", "标题", "价格", "正文", "图片", "链接"):
+    for expected_header in ("网址", "标题", "价格", "正文", "图片", "链接", "完整度"):
         if expected_header not in simple_field_headers:
             raise AssertionError(f"普通人智能字段表缺少列：{expected_header}")
     if "本地规则" not in window.simple_field_status_label.text() or "关键列都有内容" not in window.simple_field_status_label.text():
@@ -298,7 +305,7 @@ def run_universal_self_test():
         window.simple_field_table.item(0, column).text() if window.simple_field_table.item(0, column) else ""
         for column in range(window.simple_field_table.columnCount())
     )
-    for expected_value in ("Example Domain", "9.9", "示例正文", "https://example.com/a.png", "https://example.com/more"):
+    for expected_value in ("Example Domain", "9.9", "示例正文", "https://example.com/a.png", "https://example.com/more", "%"):
         if expected_value not in simple_field_text:
             raise AssertionError(f"普通人智能字段表缺少值：{expected_value}")
     before_merge_simple_rows = window.simple_result_table.rowCount()
@@ -331,6 +338,8 @@ def run_universal_self_test():
     )
     if "详情页补充参数" not in merged_simple_text:
         raise AssertionError("普通首页按要求整理表未展示合并后的详情资料")
+    if not window.records[0].get("completeness_score") or "完整度" not in window.simple_preview_counts_label.text():
+        raise AssertionError("普通首页详情合并后未刷新资料完整度")
     window.simple_merge_subpage_results = False
     window.simple_ai_field_rules = []
     fallback_headers = [
@@ -406,7 +415,7 @@ def run_universal_self_test():
         raise AssertionError("普通人面板网页结果未优先导出按要求整理表")
     simple_sheet = simple_workbook["按要求整理结果"]
     saved_headers = [simple_sheet.cell(1, column).value for column in range(1, simple_sheet.max_column + 1)]
-    for expected_header in ("网址", "标题", "价格", "正文", "图片", "链接"):
+    for expected_header in ("网址", "标题", "价格", "正文", "图片", "链接", "完整度"):
         if expected_header not in saved_headers:
             raise AssertionError(f"普通人自动保存 Excel 缺少列：{expected_header}")
     saved_row_text = "\t".join(str(simple_sheet.cell(2, column).value or "") for column in range(1, simple_sheet.max_column + 1))
@@ -2861,6 +2870,8 @@ def run_universal_self_test():
             raise AssertionError("详情页未优先使用结构化标题")
         if "199.00" not in selected_detail.get("price", "") or "CNY" not in selected_detail.get("price", ""):
             raise AssertionError("详情页未抓取结构化价格")
+        if int(selected_detail.get("completeness_score") or 0) < 85 or "完整" not in selected_detail.get("completeness_label", ""):
+            raise AssertionError(f"详情页资料完整度评分过低：{selected_detail.get('completeness_label')}")
         for expected_text in ("SKU-10001", "测试品牌", "深海蓝", "航空铝", "结构化详情页描述"):
             if expected_text not in detail_body:
                 raise AssertionError(f"详情页富资料未进入正文：{expected_text}")

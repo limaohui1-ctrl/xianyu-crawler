@@ -68,6 +68,7 @@ from universal_core import (
     UniversalCollector,
     UniversalExtractor,
     WebAgentExecutor,
+    assess_record_completeness,
     analyze_collect_task,
     ai_provider_preset_health,
     ai_provider_runtime_overview,
@@ -1146,6 +1147,8 @@ class UniversalMainWindow(QMainWindow):
                 names.append(name)
         if not names:
             names = ["标题", "正文", "图片", "链接"]
+        if "完整度" not in names:
+            names.append("完整度")
         return names
 
     def simple_has_ai_settings(self):
@@ -1396,6 +1399,18 @@ class UniversalMainWindow(QMainWindow):
         if index >= 0:
             self.template_combo.setCurrentIndex(index)
 
+    def ensure_record_completeness(self, record, force=False):
+        if not isinstance(record, dict):
+            return record
+        if not force and record.get("completeness_label") and "completeness_missing" in record:
+            return record
+        completeness = assess_record_completeness(record)
+        record["completeness_score"] = completeness["score"]
+        record["completeness_label"] = completeness["label"]
+        record["completeness_missing"] = completeness["missing"]
+        record["completeness_summary"] = completeness["summary"]
+        return record
+
     def simple_start_collecting(self):
         if self.worker:
             self.append_log("已有采集任务正在运行，未重复启动。")
@@ -1467,11 +1482,15 @@ class UniversalMainWindow(QMainWindow):
         if not getattr(self, "records", []):
             return "结果：暂无"
         counts = {"新增": 0, "变化": 0, "重复": 0, "错误": 0}
+        scores = []
         for record in self.records:
+            self.ensure_record_completeness(record)
             status = self.record_status_text(record)
             counts[status] = counts.get(status, 0) + 1
+            scores.append(int(record.get("completeness_score") or 0))
         parts = [f"{name} {count}" for name, count in counts.items() if count]
-        return f"结果：共 {len(self.records)} 条，" + "，".join(parts)
+        average = int(sum(scores) / len(scores)) if scores else 0
+        return f"结果：共 {len(self.records)} 条，平均完整度 {average}%，" + "，".join(parts)
 
     def refresh_simple_result_summary(self):
         if hasattr(self, "simple_result_summary_label"):
@@ -1485,10 +1504,12 @@ class UniversalMainWindow(QMainWindow):
     def simple_result_counts_text(self, record):
         if not record:
             return "图片 0｜链接 0｜表格 0"
+        self.ensure_record_completeness(record)
         return (
             f"图片 {len(record.get('images', []) or [])}"
             f"｜链接 {len(record.get('links', []) or [])}"
             f"｜表格 {len(record.get('tables', []) or [])}"
+            f"｜完整度 {record.get('completeness_label') or '0% 偏少'}"
         )
 
     def update_simple_result_preview(self):
@@ -2255,8 +2276,8 @@ class UniversalMainWindow(QMainWindow):
         return table
 
     def create_simple_result_table(self):
-        table = QTableWidget(0, 6)
-        table.setHorizontalHeaderLabels(["状态", "标题", "内容", "网址", "图片", "错误"])
+        table = QTableWidget(0, 7)
+        table.setHorizontalHeaderLabels(["状态", "标题", "内容", "网址", "图片", "完整度", "错误"])
         table.verticalHeader().setVisible(False)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -2265,12 +2286,14 @@ class UniversalMainWindow(QMainWindow):
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         return table
 
     def add_record_to_simple_table(self, record, record_index=None):
         if not hasattr(self, "simple_result_table"):
             return
+        self.ensure_record_completeness(record)
         row = self.simple_result_table.rowCount()
         self.simple_result_table.insertRow(row)
         body_preview = compact_text(record.get("body", ""), 160)
@@ -2284,6 +2307,7 @@ class UniversalMainWindow(QMainWindow):
             body_preview,
             record.get("url", ""),
             str(len(record.get("images", []) or [])),
+            record.get("completeness_label", ""),
             record.get("error", ""),
         ]
         for column, value in enumerate(values):
@@ -2301,6 +2325,7 @@ class UniversalMainWindow(QMainWindow):
     def simple_refresh_result_row(self, row, record, record_index=None):
         if not hasattr(self, "simple_result_table") or row < 0 or row >= self.simple_result_table.rowCount():
             return
+        self.ensure_record_completeness(record)
         body_preview = compact_text(record.get("body", ""), 160)
         if not body_preview and record.get("tables"):
             body_preview = "已抓到表格"
@@ -2312,6 +2337,7 @@ class UniversalMainWindow(QMainWindow):
             body_preview,
             record.get("url", ""),
             str(len(record.get("images", []) or [])),
+            record.get("completeness_label", ""),
             record.get("error", ""),
         ]
         for column, value in enumerate(values):
@@ -3196,6 +3222,8 @@ class UniversalMainWindow(QMainWindow):
             "图片": "images",
             "链接": "links",
             "表格": "tables",
+            "完整度": "completeness_label",
+            "缺少资料": "completeness_missing",
         }
         key = aliases.get(rule.name)
         if key:
@@ -5366,6 +5394,7 @@ class UniversalMainWindow(QMainWindow):
         self.fill_result_quality_table()
 
     def add_record(self, record):
+        self.ensure_record_completeness(record)
         self.records.append(record)
         record_index = len(self.records) - 1
         self.add_record_to_table(self.result_table, record, "current", len(self.records) - 1)
@@ -5377,6 +5406,7 @@ class UniversalMainWindow(QMainWindow):
                     parent_record = self.records[parent_index]
                     merged_to_parent = self.simple_merge_subpage_into_parent(parent_record, record)
                     if merged_to_parent:
+                        self.ensure_record_completeness(parent_record, force=True)
                         for row in range(self.simple_result_table.rowCount()):
                             marker = self.simple_result_table.item(row, 0)
                             if marker and marker.data(Qt.ItemDataRole.UserRole + 1) == parent_index:
@@ -5453,6 +5483,7 @@ class UniversalMainWindow(QMainWindow):
             )
 
     def add_record_to_table(self, table, record, source="current", record_index=None):
+        self.ensure_record_completeness(record)
         row = table.rowCount()
         table.insertRow(row)
         status_text = self.record_status_text(record)
@@ -5469,6 +5500,8 @@ class UniversalMainWindow(QMainWindow):
             str(len(record.get("images", []) or [])),
             str(len(record.get("links", []) or [])),
             str(len(record.get("tables", []) or [])),
+            record.get("completeness_label", ""),
+            "、".join(record.get("completeness_missing", []) or []),
             record.get("fingerprint", "")[:16],
             status_text,
             record.get("error", ""),
