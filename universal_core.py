@@ -2769,18 +2769,22 @@ class UniversalExtractor:
 
     def extract(self, html, url):
         soup = BeautifulSoup(html or "", "html.parser")
+        structured_data = self.extract_structured_data(soup)
+        metadata = self.extract_metadata(soup, url)
         self.remove_noise(soup)
+        body = self.extract_body(soup)
+        body = self.enrich_body(body, metadata, structured_data)
         record = {
             "collected_at": now_text(),
             "url": url,
             "domain": url_domain(url),
             "template_name": self.template.name,
-            "title": self.extract_title(soup),
-            "price": self.extract_price(soup),
-            "published_time": self.extract_time(soup),
-            "author": self.extract_author(soup),
-            "body": self.extract_body(soup),
-            "images": self.extract_images(soup, url),
+            "title": self.extract_title(soup, metadata, structured_data),
+            "price": self.extract_price(soup, structured_data),
+            "published_time": self.extract_time(soup, structured_data),
+            "author": self.extract_author(soup, structured_data),
+            "body": body,
+            "images": self.extract_images(soup, url, metadata, structured_data),
             "links": self.extract_links(soup, url),
             "tables": self.extract_tables(soup),
             "error": "",
@@ -2805,8 +2809,98 @@ class UniversalExtractor:
                 return compact_text(tag.get("content"), 1000)
         return ""
 
-    def extract_title(self, soup):
+    def extract_metadata(self, soup, url):
+        metadata = {}
+        meta_names = {
+            "description": ["description", "og:description", "twitter:description"],
+            "keywords": ["keywords", "news_keywords"],
+            "site_name": ["og:site_name", "application-name"],
+            "image": ["og:image", "twitter:image", "image"],
+            "canonical": ["canonical", "og:url"],
+        }
+        for key, names in meta_names.items():
+            if key == "canonical":
+                value = ""
+                link_tag = soup.select_one('link[rel="canonical"][href]')
+                if link_tag:
+                    value = normalize_url(link_tag.get("href"), url)
+                value = value or self.first_meta(soup, names)
+                if value:
+                    metadata[key] = normalize_url(value, url)
+            else:
+                value = self.first_meta(soup, names)
+                if value:
+                    metadata[key] = normalize_url(value, url) if key == "image" else value
+        return metadata
+
+    def extract_structured_data(self, soup):
+        items = []
+        for script in soup.select('script[type*="ld+json"]'):
+            raw = script.string or script.get_text("", strip=True)
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+            for item in self.flatten_structured_items(payload):
+                if isinstance(item, dict):
+                    items.append(item)
+            if len(items) >= 20:
+                break
+        return items
+
+    def flatten_structured_items(self, payload):
+        if isinstance(payload, list):
+            for item in payload:
+                yield from self.flatten_structured_items(item)
+        elif isinstance(payload, dict):
+            graph = payload.get("@graph")
+            if isinstance(graph, list):
+                for item in graph:
+                    yield from self.flatten_structured_items(item)
+            yield payload
+
+    def structured_text_rows(self, structured_data):
+        rows = []
+        for item in structured_data or []:
+            item_type = item.get("@type", "")
+            if isinstance(item_type, list):
+                item_type = "/".join(str(value) for value in item_type)
+            fields = []
+            for label, key in (
+                ("类型", "@type"),
+                ("名称", "name"),
+                ("品牌", "brand"),
+                ("描述", "description"),
+                ("SKU", "sku"),
+                ("价格", "price"),
+                ("币种", "priceCurrency"),
+                ("库存", "availability"),
+            ):
+                value = item.get(key)
+                if isinstance(value, dict):
+                    value = value.get("name") or value.get("@id") or json.dumps(value, ensure_ascii=False)
+                elif isinstance(value, list):
+                    value = "、".join(compact_text(v.get("name", "") if isinstance(v, dict) else v, 200) for v in value)
+                value = compact_text(value, 600)
+                if value:
+                    fields.append(f"{label}：{value}")
+            offers = item.get("offers")
+            if isinstance(offers, dict):
+                for label, key in (("报价", "price"), ("报价币种", "priceCurrency"), ("报价库存", "availability")):
+                    value = compact_text(offers.get(key), 200)
+                    if value:
+                        fields.append(f"{label}：{value}")
+            if fields:
+                prefix = f"结构化数据 {item_type}".strip()
+                rows.append(prefix + "\n" + "\n".join(dict.fromkeys(fields)))
+        return rows
+
+    def extract_title(self, soup, metadata=None, structured_data=None):
+        metadata = metadata or {}
         for getter in (
+            lambda: self.first_structured_value(structured_data, ("name", "headline")),
             lambda: self.first_meta(soup, ["og:title", "twitter:title", "title"]),
             lambda: compact_text(soup.select_one("h1").get_text(" ", strip=True), 500)
             if soup.select_one("h1")
@@ -2820,7 +2914,32 @@ class UniversalExtractor:
                 return value
         return ""
 
-    def extract_price(self, soup):
+    def first_structured_value(self, structured_data, keys):
+        for item in structured_data or []:
+            if not isinstance(item, dict):
+                continue
+            for key in keys:
+                value = item.get(key)
+                if isinstance(value, dict):
+                    value = value.get("name") or value.get("@id")
+                elif isinstance(value, list):
+                    value = next((v.get("name", "") if isinstance(v, dict) else v for v in value if v), "")
+                value = compact_text(value, 500)
+                if value:
+                    return value
+        return ""
+
+    def extract_price(self, soup, structured_data=None):
+        for item in structured_data or []:
+            value = item.get("price") if isinstance(item, dict) else ""
+            offers = item.get("offers") if isinstance(item, dict) else None
+            if not value and isinstance(offers, dict):
+                value = offers.get("price")
+            if value:
+                currency = ""
+                if isinstance(offers, dict):
+                    currency = offers.get("priceCurrency", "")
+                return compact_text(f"{currency} {value}".strip(), 120)
         meta_price = self.first_meta(
             soup,
             [
@@ -2857,7 +2976,13 @@ class UniversalExtractor:
         )
         return compact_text(match.group(1), 80) if match else ""
 
-    def extract_time(self, soup):
+    def extract_time(self, soup, structured_data=None):
+        value = self.first_structured_value(
+            structured_data,
+            ("datePublished", "dateModified", "uploadDate", "releaseDate"),
+        )
+        if value:
+            return value
         meta_time = self.first_meta(
             soup,
             [
@@ -2885,7 +3010,18 @@ class UniversalExtractor:
     def looks_like_time(self, value):
         return bool(re.search(r"\d{4}|\d{1,2}:\d{2}|昨天|今天|前|发布", value or ""))
 
-    def extract_author(self, soup):
+    def extract_author(self, soup, structured_data=None):
+        for item in structured_data or []:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("author") or item.get("creator") or item.get("seller") or item.get("brand")
+            if isinstance(value, dict):
+                value = value.get("name") or value.get("@id")
+            elif isinstance(value, list):
+                value = next((v.get("name", "") if isinstance(v, dict) else v for v in value if v), "")
+            value = compact_text(value, 200)
+            if value:
+                return value
         meta_author = self.first_meta(soup, ["author", "article:author", "byl"])
         if meta_author:
             return meta_author
@@ -2927,25 +3063,135 @@ class UniversalExtractor:
                 for tag in soup.select("p")
             ]
             candidates = [text for text in paragraphs if len(text) > 20]
+        detail_rows = self.extract_detail_text_rows(soup)
+        if detail_rows:
+            candidates.append("资料明细：\n" + "\n".join(detail_rows))
         if not candidates:
             return clean_text(soup.get_text("\n", strip=True), 6000)
-        return max(candidates, key=len)
+        unique = []
+        for text in sorted(candidates, key=len, reverse=True):
+            text = clean_text(text, 12000)
+            if text and text not in unique:
+                unique.append(text)
+            if len("\n\n".join(unique)) >= 12000 or len(unique) >= 4:
+                break
+        return clean_text("\n\n".join(unique), 18000)
 
-    def extract_images(self, soup, url):
+    def extract_detail_text_rows(self, soup):
+        rows = []
+        for dl in soup.select("dl")[:30]:
+            terms = dl.select("dt")
+            values = dl.select("dd")
+            for index, term in enumerate(terms):
+                name = compact_text(term.get_text(" ", strip=True), 120)
+                value = compact_text(values[index].get_text(" ", strip=True), 600) if index < len(values) else ""
+                if name and value:
+                    rows.append(f"{name}：{value}")
+        for selector in (
+            "[class*=spec] li",
+            "[class*=param] li",
+            "[class*=attr] li",
+            "[class*=property] li",
+            "[class*=detail] li",
+            "[id*=spec] li",
+            "[id*=param] li",
+        ):
+            for tag in soup.select(selector)[:80]:
+                text = compact_text(tag.get_text(" ", strip=True), 700)
+                if len(text) >= 3:
+                    rows.append(text)
+        for tag in soup.select("[data-label], [data-name], [data-title]")[:80]:
+            label = compact_text(tag.get("data-label") or tag.get("data-name") or tag.get("data-title"), 120)
+            value = compact_text(tag.get_text(" ", strip=True), 600)
+            if label and value and label not in value:
+                rows.append(f"{label}：{value}")
+        return list(dict.fromkeys(rows))[:120]
+
+    def enrich_body(self, body, metadata, structured_data):
+        sections = [body] if body else []
+        meta_lines = []
+        if metadata.get("description"):
+            meta_lines.append(f"页面描述：{metadata['description']}")
+        if metadata.get("keywords"):
+            meta_lines.append(f"关键词：{metadata['keywords']}")
+        if metadata.get("site_name"):
+            meta_lines.append(f"站点：{metadata['site_name']}")
+        if metadata.get("canonical"):
+            meta_lines.append(f"规范链接：{metadata['canonical']}")
+        if meta_lines:
+            sections.append("页面元信息：\n" + "\n".join(meta_lines))
+        structured_rows = self.structured_text_rows(structured_data)
+        if structured_rows:
+            sections.append("\n\n".join(structured_rows[:8]))
+        return clean_text("\n\n".join(section for section in sections if section), 24000)
+
+    def image_candidates_from_srcset(self, srcset):
+        candidates = []
+        for part in str(srcset or "").split(","):
+            url_part = part.strip().split(" ", 1)[0]
+            if url_part:
+                candidates.append(url_part)
+        return candidates
+
+    def add_image_item(self, images, seen, image_url, url, alt="", title=""):
+        image_url = normalize_url(image_url, url)
+        if not image_url or image_url.startswith("data:") or image_url in seen:
+            return
+        seen.add(image_url)
+        item = {
+            "url": image_url,
+            "alt": compact_text(alt or title or "", 300),
+        }
+        if title and title != item["alt"]:
+            item["title"] = compact_text(title, 300)
+        images.append(item)
+
+    def extract_images(self, soup, url, metadata=None, structured_data=None):
         images = []
+        seen = set()
+        metadata = metadata or {}
+        if metadata.get("image"):
+            self.add_image_item(images, seen, metadata.get("image"), url, "meta image")
         for img in soup.select("img"):
-            src = img.get("src") or img.get("data-src") or img.get("data-original")
-            src = normalize_url(src, url)
-            if not src or src.startswith("data:"):
-                continue
-            item = {
-                "url": src,
-                "alt": compact_text(img.get("alt", ""), 300),
-            }
-            if item not in images:
-                images.append(item)
+            raw_candidates = []
+            for attr in (
+                "src",
+                "data-src",
+                "data-original",
+                "data-lazy-src",
+                "data-url",
+                "data-image",
+                "data-img",
+            ):
+                if img.get(attr):
+                    raw_candidates.append(img.get(attr))
+            for attr in ("srcset", "data-srcset"):
+                raw_candidates.extend(self.image_candidates_from_srcset(img.get(attr)))
+            alt = img.get("alt", "")
+            title = img.get("title", "")
+            for candidate in raw_candidates:
+                self.add_image_item(images, seen, candidate, url, alt, title)
+                if len(images) >= MAX_IMAGES:
+                    break
             if len(images) >= MAX_IMAGES:
                 break
+        if len(images) < MAX_IMAGES:
+            for source in soup.select("picture source[srcset], source[srcset]"):
+                for candidate in self.image_candidates_from_srcset(source.get("srcset")):
+                    self.add_image_item(images, seen, candidate, url, source.get("media", ""))
+                    if len(images) >= MAX_IMAGES:
+                        break
+        for item in structured_data or []:
+            image_value = item.get("image") if isinstance(item, dict) else None
+            image_values = image_value if isinstance(image_value, list) else [image_value]
+            for image_item in image_values:
+                if isinstance(image_item, dict):
+                    image_url = image_item.get("url") or image_item.get("@id")
+                else:
+                    image_url = image_item
+                self.add_image_item(images, seen, image_url, url, "structured image")
+                if len(images) >= MAX_IMAGES:
+                    break
         return images
 
     def extract_links(self, soup, url):
@@ -2955,7 +3201,13 @@ class UniversalExtractor:
             href = normalize_url(link.get("href"), url)
             if not href or href.startswith(("javascript:", "mailto:", "tel:")):
                 continue
-            text = compact_text(link.get_text(" ", strip=True), 300)
+            text = compact_text(
+                link.get_text(" ", strip=True)
+                or link.get("title", "")
+                or link.get("aria-label", "")
+                or href,
+                300,
+            )
             key = (href, text)
             if key in seen:
                 continue
@@ -2978,6 +3230,17 @@ class UniversalExtractor:
                     rows.append(cells)
             if rows:
                 tables.append(rows)
+        detail_rows = []
+        for row in self.extract_detail_text_rows(soup):
+            if "：" in row:
+                key, value = row.split("：", 1)
+            elif ":" in row:
+                key, value = row.split(":", 1)
+            else:
+                key, value = "资料", row
+            detail_rows.append([compact_text(key, 200), compact_text(value, 800)])
+        if detail_rows:
+            tables.append([["字段", "值"]] + detail_rows[:MAX_TABLE_ROWS])
         return tables
 
     def apply_template_rules(self, soup, url, record):

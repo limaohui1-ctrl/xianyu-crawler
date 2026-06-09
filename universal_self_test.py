@@ -2741,7 +2741,49 @@ def run_universal_self_test():
                   <a href="/product/10002">第二页商品详情</a>
                 </body></html>
                 """,
-                "/product/10001": "<html><body><h1>选中详情页</h1><p>这是一段选中详情页正文。</p></body></html>",
+                "/product/10001": """
+                <html>
+                  <head>
+                    <meta name="description" content="结构化详情页描述，包含售后、库存和规格资料">
+                    <meta property="og:image" content="/image.png">
+                    <script type="application/ld+json">
+                    {
+                      "@context": "https://schema.org",
+                      "@type": "Product",
+                      "name": "结构化测试商品",
+                      "description": "JSON-LD 中的商品描述和卖点",
+                      "sku": "SKU-10001",
+                      "brand": {"@type": "Brand", "name": "测试品牌"},
+                      "image": ["/image.png", "/image-large.png"],
+                      "offers": {
+                        "@type": "Offer",
+                        "price": "199.00",
+                        "priceCurrency": "CNY",
+                        "availability": "https://schema.org/InStock"
+                      }
+                    }
+                    </script>
+                  </head>
+                  <body>
+                    <h1>选中详情页</h1>
+                    <article>
+                      <p>这是一段选中详情页正文。</p>
+                      <p>包含材质、尺寸、库存、售后和发货周期等完整说明。</p>
+                    </article>
+                    <img data-src="/image.png" alt="懒加载商品图">
+                    <img srcset="/image-small.png 1x, /image-large.png 2x" alt="高清商品图">
+                    <dl class="specs">
+                      <dt>颜色</dt><dd>深海蓝</dd>
+                      <dt>库存</dt><dd>现货 42 件</dd>
+                    </dl>
+                    <ul class="params">
+                      <li>材质：航空铝</li>
+                      <li>包装：礼盒装</li>
+                    </ul>
+                    <a href="/product/10001/reviews" aria-label="用户评价">评价</a>
+                  </body>
+                </html>
+                """,
                 "/article/20002": "<html><body><h1>未选文章页</h1><p>不应该被深抓。</p></body></html>",
                 "/help": "<html><body><h1>帮助中心</h1></body></html>",
             }
@@ -2790,6 +2832,24 @@ def run_universal_self_test():
             raise AssertionError("手动选择的子页面未被深抓")
         if any("article/20002" in item for item in selected_urls):
             raise AssertionError("未勾选子页面被错误深抓")
+        selected_detail = next((item for item in selected_results if "product/10001" in item.get("url", "")), {})
+        detail_body = selected_detail.get("body", "")
+        detail_images = selected_detail.get("images", [])
+        detail_tables = selected_detail.get("tables", [])
+        if selected_detail.get("title") != "结构化测试商品":
+            raise AssertionError("详情页未优先使用结构化标题")
+        if "199.00" not in selected_detail.get("price", "") or "CNY" not in selected_detail.get("price", ""):
+            raise AssertionError("详情页未抓取结构化价格")
+        for expected_text in ("SKU-10001", "测试品牌", "深海蓝", "航空铝", "结构化详情页描述"):
+            if expected_text not in detail_body:
+                raise AssertionError(f"详情页富资料未进入正文：{expected_text}")
+        if not any("image-large.png" in image.get("url", "") for image in detail_images):
+            raise AssertionError("详情页未抓取 srcset 高清图片")
+        if not any("image.png" in image.get("url", "") for image in detail_images):
+            raise AssertionError("详情页未抓取 meta/data-src 图片")
+        flat_table_text = json.dumps(detail_tables, ensure_ascii=False)
+        if "库存" not in flat_table_text or "礼盒装" not in flat_table_text:
+            raise AssertionError("详情页规格参数未进入表格资料")
         progress_events = []
         progress_results = collector.collect_urls(
             [site_base],
