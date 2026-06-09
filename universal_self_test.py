@@ -103,6 +103,7 @@ def run_universal_self_test():
         "simple_schedule_button",
         "simple_retry_button",
         "simple_real_check_button",
+        "simple_depth_combo",
         "simple_column_card_label",
         "simple_ai_provider_combo",
         "simple_ai_model_combo",
@@ -176,6 +177,8 @@ def run_universal_self_test():
         raise AssertionError("统一普通界面不应再暴露专家模式按钮")
     if window.simple_real_check_button.text() != "真实自检":
         raise AssertionError("普通人面板缺少真实抓取自检入口")
+    if window.simple_depth_combo.currentData() != "deep":
+        raise AssertionError("普通人一键采集应默认使用深度采集")
     if not window.simple_ai_provider_combo.count() or not window.simple_ai_model_combo.count():
         raise AssertionError("普通人面板未提供 API 厂商和模型选择")
     window.on_real_scrape_check_result(
@@ -228,8 +231,26 @@ def run_universal_self_test():
         if window.subpage_checkbox.isChecked() or window.page_limit_input.value() != 1:
             raise AssertionError("普通人一键采集不应默认展开复杂分页/子页面")
         runtime_overrides = direct_starts[-1].get("runtime_overrides", {})
-        if not runtime_overrides.get("scrape_subpages") or runtime_overrides.get("subpage_limit") != 1 or not runtime_overrides.get("simple_auto_subpages"):
-            raise AssertionError(f"普通人一键采集未启用轻量详情页补全：{runtime_overrides}")
+        if not runtime_overrides.get("scrape_subpages") or runtime_overrides.get("subpage_limit") != 5 or not runtime_overrides.get("simple_auto_subpages"):
+            raise AssertionError(f"普通人一键采集未启用深度详情页补全：{runtime_overrides}")
+        if runtime_overrides.get("simple_collect_depth") != "深度":
+            raise AssertionError(f"普通人一键采集未记录采集深度：{runtime_overrides}")
+        normal_index = window.simple_depth_combo.findData("normal")
+        window.simple_depth_combo.setCurrentIndex(normal_index)
+        if not window.simple_prepare_and_start_collect():
+            raise AssertionError("普通深度切换后未启动")
+        normal_overrides = direct_starts[-1].get("runtime_overrides", {})
+        if normal_overrides.get("subpage_limit") != 1 or normal_overrides.get("simple_collect_depth") != "普通":
+            raise AssertionError(f"普通模式采集深度参数错误：{normal_overrides}")
+        complete_index = window.simple_depth_combo.findData("complete")
+        window.simple_depth_combo.setCurrentIndex(complete_index)
+        if not window.simple_prepare_and_start_collect():
+            raise AssertionError("完整深度切换后未启动")
+        complete_overrides = direct_starts[-1].get("runtime_overrides", {})
+        if complete_overrides.get("subpage_limit") != 10 or complete_overrides.get("simple_collect_depth") != "完整":
+            raise AssertionError(f"完整模式采集深度参数错误：{complete_overrides}")
+        if window.page_limit_input.value() != 2 or window.scroll_times_input.value() < 3:
+            raise AssertionError("完整模式未提高分页或滚动采集参数")
     finally:
         window.start_collecting = original_simple_start_collecting
         if hasattr(window, "_self_test_start_hook"):

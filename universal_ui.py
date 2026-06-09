@@ -859,6 +859,12 @@ class UniversalMainWindow(QMainWindow):
         self.simple_schedule_button = QPushButton("定时监控")
         self.simple_retry_button = QPushButton("重试失败")
         self.simple_real_check_button = QPushButton("真实自检")
+        self.simple_depth_combo = QComboBox()
+        self.simple_depth_combo.addItem("普通", "normal")
+        self.simple_depth_combo.addItem("深度", "deep")
+        self.simple_depth_combo.addItem("完整", "complete")
+        self.simple_depth_combo.setCurrentIndex(1)
+        self.simple_depth_combo.currentIndexChanged.connect(self.on_simple_depth_changed)
         self.simple_start_button.clicked.connect(self.simple_prepare_and_start_collect)
         self.simple_stop_button.clicked.connect(self.stop_collecting)
         self.simple_ai_suggest_button.clicked.connect(self.simple_suggest_columns_now)
@@ -873,16 +879,18 @@ class UniversalMainWindow(QMainWindow):
         input_layout.addWidget(self.simple_url_input, 0, 1, 1, 3)
         input_layout.addWidget(QLabel("要抓什么"), 1, 0)
         input_layout.addWidget(self.simple_goal_input, 1, 1, 1, 3)
-        input_layout.addWidget(self.simple_ai_suggest_button, 2, 0)
-        input_layout.addWidget(self.simple_start_button, 2, 1)
-        input_layout.addWidget(self.simple_stop_button, 2, 2)
+        input_layout.addWidget(QLabel("采集深度"), 2, 0)
+        input_layout.addWidget(self.simple_depth_combo, 2, 1)
+        input_layout.addWidget(self.simple_ai_suggest_button, 2, 2)
         input_layout.addWidget(self.simple_real_check_button, 2, 3)
-        input_layout.addWidget(self.simple_export_button, 3, 0)
-        input_layout.addWidget(self.simple_copy_button, 3, 1)
-        input_layout.addWidget(self.simple_contact_button, 3, 2)
-        input_layout.addWidget(self.simple_image_button, 3, 3)
-        input_layout.addWidget(self.simple_schedule_button, 4, 0)
-        input_layout.addWidget(self.simple_retry_button, 4, 1)
+        input_layout.addWidget(self.simple_start_button, 3, 0)
+        input_layout.addWidget(self.simple_stop_button, 3, 1)
+        input_layout.addWidget(self.simple_export_button, 3, 2)
+        input_layout.addWidget(self.simple_copy_button, 3, 3)
+        input_layout.addWidget(self.simple_contact_button, 4, 0)
+        input_layout.addWidget(self.simple_image_button, 4, 1)
+        input_layout.addWidget(self.simple_schedule_button, 4, 2)
+        input_layout.addWidget(self.simple_retry_button, 4, 3)
         layout.addWidget(input_box)
 
         ai_box = QGroupBox("AI 设置")
@@ -1014,7 +1022,43 @@ class UniversalMainWindow(QMainWindow):
         recent_layout.addWidget(self.simple_recent_records_table)
         layout.addWidget(recent_box)
         self.refresh_simple_recent_area()
+        self.on_simple_depth_changed()
         return page
+
+    def simple_collect_depth_config(self):
+        mode = "deep"
+        if hasattr(self, "simple_depth_combo"):
+            mode = self.simple_depth_combo.currentData() or "deep"
+        configs = {
+            "normal": {
+                "label": "普通",
+                "subpage_limit": 1,
+                "page_limit": 1,
+                "scroll_times": 1,
+                "progress": "后台：快速读取网页，并补充 1 个同站详情页",
+            },
+            "deep": {
+                "label": "深度",
+                "subpage_limit": 5,
+                "page_limit": 1,
+                "scroll_times": 2,
+                "progress": "后台：深度读取网页，并补充最多 5 个同站详情页",
+            },
+            "complete": {
+                "label": "完整",
+                "subpage_limit": 10,
+                "page_limit": 2,
+                "scroll_times": 3,
+                "progress": "后台：尽量完整读取网页、分页和同站详情页",
+            },
+        }
+        return configs.get(mode, configs["deep"])
+
+    def on_simple_depth_changed(self):
+        if not hasattr(self, "simple_progress_label") or self.worker:
+            return
+        config = self.simple_collect_depth_config()
+        self.simple_progress_label.setText(config["progress"])
 
     def sync_simple_inputs_to_background(self):
         if hasattr(self, "simple_url_input"):
@@ -1369,30 +1413,35 @@ class UniversalMainWindow(QMainWindow):
         self.url_input.setPlainText("\n".join(urls))
         if hasattr(self, "ai_url_input"):
             self.ai_url_input.setText(urls[0])
+        depth_config = self.simple_collect_depth_config()
         self.simple_select_default_template()
         self.use_browser_checkbox.setChecked(True)
-        self.page_limit_input.setValue(1)
-        self.scroll_times_input.setValue(max(1, self.scroll_times_input.value()))
+        self.page_limit_input.setValue(depth_config["page_limit"])
+        self.scroll_times_input.setValue(max(depth_config["scroll_times"], self.scroll_times_input.value()))
         self.delay_input.setValue(max(1, self.delay_input.value()))
         self.keep_login_checkbox.setChecked(False)
         self.subpage_checkbox.setChecked(False)
         self.subpage_limit_input.setValue(0)
         self.selected_subpage_urls = []
         if hasattr(self, "simple_status_label"):
-            self.simple_status_label.setText("正在采集网页资料")
+            self.simple_status_label.setText(f"正在{depth_config['label']}采集网页资料")
         if hasattr(self, "simple_progress_label"):
-            self.simple_progress_label.setText("后台：正在打开网页，并自动补充同站详情页资料")
+            self.simple_progress_label.setText(depth_config["progress"])
         self.set_simple_flow_step("采集")
-        self.append_log("一键采集已启动：后台读取网页资料，并轻量补充同站详情页。")
+        self.append_log(
+            f"一键采集已启动：{depth_config['label']}模式，"
+            f"补充最多 {depth_config['subpage_limit']} 个同站详情页。"
+        )
         if self.maybe_start_simple_ai_suggest_fields(urls) and hasattr(self, "simple_status_label"):
             self.simple_status_label.setText("正在采集网页资料，AI 正在后台整理字段")
         self.start_collecting(
             skip_confirmation=True,
             runtime_overrides={
                 "scrape_subpages": True,
-                "subpage_limit": 1,
+                "subpage_limit": depth_config["subpage_limit"],
                 "selected_subpage_urls": [],
                 "simple_auto_subpages": True,
+                "simple_collect_depth": depth_config["label"],
             },
         )
         return True
@@ -4960,6 +5009,7 @@ class UniversalMainWindow(QMainWindow):
             "subpage_limit": subpage_limit,
             "selected_subpage_urls": selected_subpages if scrape_subpages else [],
             "simple_auto_subpages": bool(runtime_overrides.get("simple_auto_subpages", False)),
+            "simple_collect_depth": runtime_overrides.get("simple_collect_depth", ""),
             "ai_provider": self.ai_settings.get("provider", ""),
             "model": self.ai_settings.get("model", ""),
             "risk_checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
