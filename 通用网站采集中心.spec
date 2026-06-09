@@ -1,0 +1,70 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+
+a = Analysis(
+    ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[],
+    hiddenimports=[
+        'universal_self_test',
+        'ui_ai_settings',
+        'ui_history',
+        'ui_exports',
+        'ui_queue',
+        'ui_ai_history',
+        'ui_export_utils',
+        'core_export',
+        'core_database',
+        'universal_self_test_runtime',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'numpy',
+        'pandas',
+        'sklearn',
+        'scipy',
+        'matplotlib',
+        'chrome-profile',
+        'self_test_runtime',
+        'hit_history.json',
+        'item_statuses.json',
+        'scanned_items.json',
+        'monitor_log.txt',
+        'diagnostic_log_*.txt',
+        'collector.sqlite3',
+        'site_templates.json',
+    ],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='通用网站采集中心',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='通用网站采集中心',
+)
