@@ -119,6 +119,11 @@ def run_universal_self_test():
         "simple_result_summary_label",
         "simple_retry_report_label",
         "simple_diagnosis_label",
+        "simple_repair_plan_label",
+        "simple_fix_pagination_button",
+        "simple_fix_subpages_button",
+        "simple_fix_login_button",
+        "simple_fix_fields_button",
         "simple_sample_verify_label",
         "simple_strategy_compare_label",
         "simple_discovery_label",
@@ -580,6 +585,74 @@ def run_universal_self_test():
     )
     if field_rule_diagnosis.get("reason") != "字段规则可能不匹配" or "AI 建议列" not in field_rule_diagnosis.get("advice", ""):
         raise AssertionError(f"字段规则诊断不正确：{field_rule_diagnosis}")
+    repair_records_backup = list(window.records)
+    window.records = [
+        {
+            "url": "https://example.com/list",
+            "title": "分页页",
+            "body": "列表摘要",
+            "images": [],
+            "links": [{"text": "下一页", "url": "https://example.com/list?page=2"}],
+            "tables": [],
+        },
+        {
+            "url": "https://example.com/list-item",
+            "title": "子链接页",
+            "body": "这是列表页摘要内容，正文已经足够长，但图片、价格和规格可能藏在同站详情页里，需要继续展开详情。",
+            "images": [],
+            "links": [{"text": "详情", "url": "https://example.com/detail"}],
+            "tables": [],
+        },
+        {
+            "url": "https://example.com/blocked",
+            "title": "",
+            "body": "",
+            "images": [],
+            "links": [],
+            "tables": [],
+            "error": "403 验证码拦截",
+        },
+        {
+            "url": "https://example.com/custom",
+            "title": "字段规则页",
+            "body": "页面正文已经抓到很多文字内容，说明网页可以访问，但用户需要的价格、作者、时间、图片等结构化字段没有被当前规则提取出来。",
+            "images": [],
+            "links": [],
+            "tables": [],
+        },
+    ]
+    repair_groups = window.simple_repair_plan_groups()
+    if (
+        "https://example.com/list" not in repair_groups.get("pagination", {}).get("urls", [])
+        or "https://example.com/list-item" not in repair_groups.get("subpages", {}).get("urls", [])
+        or "https://example.com/blocked" not in repair_groups.get("login", {}).get("urls", [])
+        or "https://example.com/custom" not in repair_groups.get("fields", {}).get("urls", [])
+    ):
+        raise AssertionError(f"修复方案未按原因分组：{repair_groups}")
+    window.refresh_simple_result_summary()
+    if "分页 1 条" not in window.simple_repair_plan_label.text() or "子链接 1 条" not in window.simple_repair_plan_label.text():
+        raise AssertionError(f"修复方案摘要未展示分页/子链接分组：{window.simple_repair_plan_label.text()}")
+    repair_starts = []
+    original_start_for_repair_plan = window.start_collecting
+    window.start_collecting = lambda skip_confirmation=False, runtime_overrides=None: repair_starts.append(
+        {
+            "urls": list(window.urls_from_input()),
+            "skip_confirmation": skip_confirmation,
+            "runtime_overrides": dict(runtime_overrides or {}),
+        }
+    )
+    try:
+        if not window.simple_apply_repair_plan_action("pagination"):
+            raise AssertionError("分页修复方案未启动")
+    finally:
+        window.start_collecting = original_start_for_repair_plan
+    if repair_starts[-1].get("urls") != ["https://example.com/list"]:
+        raise AssertionError(f"分页修复方案未只重抓分页网址：{repair_starts}")
+    repair_overrides = repair_starts[-1].get("runtime_overrides", {})
+    if repair_overrides.get("simple_collect_depth") != "完整" or repair_overrides.get("skip_unchanged") is not False:
+        raise AssertionError(f"分页修复方案未使用完整重抓参数：{repair_overrides}")
+    window.records = repair_records_backup
+    window.refresh_simple_result_summary()
     diagnosis_retry_starts = []
     original_start_for_diagnosis_action = window.start_collecting
     window.start_collecting = lambda skip_confirmation=False, runtime_overrides=None: diagnosis_retry_starts.append(

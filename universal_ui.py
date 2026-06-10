@@ -1101,6 +1101,15 @@ class UniversalMainWindow(QMainWindow):
             self.simple_retry_button.setEnabled(not running)
         if hasattr(self, "simple_retry_low_quality_button"):
             self.simple_retry_low_quality_button.setEnabled(not running)
+        for attr_name in (
+            "simple_fix_pagination_button",
+            "simple_fix_subpages_button",
+            "simple_fix_login_button",
+            "simple_fix_fields_button",
+        ):
+            button = getattr(self, attr_name, None)
+            if button:
+                button.setEnabled(not running)
 
     def build_simple_collect_tab(self):
         page = QWidget()
@@ -1154,6 +1163,10 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_button = QPushButton("重试失败")
         self.simple_retry_low_quality_button = QPushButton("重抓低完整度")
         self.simple_apply_diagnosis_button = QPushButton("应用诊断建议")
+        self.simple_fix_pagination_button = QPushButton("重抓分页")
+        self.simple_fix_subpages_button = QPushButton("重抓子链接")
+        self.simple_fix_login_button = QPushButton("登录重试")
+        self.simple_fix_fields_button = QPushButton("AI 修字段")
         self.simple_sample_verify_button = QPushButton("抽样验证")
         self.simple_strategy_compare_button = QPushButton("实测对比")
         self.simple_real_check_button = QPushButton("真实自检")
@@ -1175,6 +1188,10 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_button.clicked.connect(self.simple_retry_failed_items)
         self.simple_retry_low_quality_button.clicked.connect(self.simple_retry_low_quality_items)
         self.simple_apply_diagnosis_button.clicked.connect(self.simple_apply_diagnosis_action)
+        self.simple_fix_pagination_button.clicked.connect(lambda: self.simple_apply_repair_plan_action("pagination"))
+        self.simple_fix_subpages_button.clicked.connect(lambda: self.simple_apply_repair_plan_action("subpages"))
+        self.simple_fix_login_button.clicked.connect(lambda: self.simple_apply_repair_plan_action("login"))
+        self.simple_fix_fields_button.clicked.connect(lambda: self.simple_apply_repair_plan_action("fields"))
         self.simple_sample_verify_button.clicked.connect(self.simple_run_sample_verification)
         self.simple_strategy_compare_button.clicked.connect(self.simple_run_strategy_comparison)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
@@ -1227,6 +1244,18 @@ class UniversalMainWindow(QMainWindow):
         self.simple_diagnosis_label.setObjectName("simpleSummaryText")
         self.simple_diagnosis_label.setWordWrap(True)
         status_layout.addWidget(self.simple_diagnosis_label)
+
+        self.simple_repair_plan_label = QLabel("修复方案：等待诊断")
+        self.simple_repair_plan_label.setObjectName("simpleSummaryText")
+        self.simple_repair_plan_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_repair_plan_label)
+        repair_actions = QHBoxLayout()
+        repair_actions.addWidget(self.simple_fix_pagination_button)
+        repair_actions.addWidget(self.simple_fix_subpages_button)
+        repair_actions.addWidget(self.simple_fix_login_button)
+        repair_actions.addWidget(self.simple_fix_fields_button)
+        repair_actions.addStretch(1)
+        status_layout.addLayout(repair_actions)
 
         self.simple_sample_verify_label = QLabel("抽样验证：等待样本")
         self.simple_sample_verify_label.setObjectName("simpleSummaryText")
@@ -2146,6 +2175,119 @@ class UniversalMainWindow(QMainWindow):
         top_row = next((row for row in weak_rows if row.get("reason") == top_reason), weak_rows[0])
         return f"诊断建议：{len(weak_rows)} 条需处理；主要是{top_reason} {top_count} 条。建议：{top_row.get('advice', '')}"
 
+    def simple_repair_plan_groups(self, records=None):
+        categories = {
+            "pagination": {
+                "label": "分页",
+                "button": "重抓分页",
+                "reasons": {"分页可能未继续"},
+                "urls": [],
+            },
+            "subpages": {
+                "label": "子链接",
+                "button": "重抓子链接",
+                "reasons": {"子链接未展开", "详情页可能未展开", "子链接候选不足", "疑似动态加载"},
+                "urls": [],
+            },
+            "login": {
+                "label": "登录/请求",
+                "button": "登录重试",
+                "reasons": {"反爬或权限限制", "请求失败"},
+                "urls": [],
+            },
+            "fields": {
+                "label": "字段",
+                "button": "AI 修字段",
+                "reasons": {"字段规则可能不匹配"},
+                "urls": [],
+            },
+        }
+        for row in self.simple_crawl_diagnosis_rows(records):
+            if row.get("severity") == "正常":
+                continue
+            url = normalize_url(row.get("url", ""))
+            reason = row.get("reason", "")
+            if not url:
+                continue
+            for group in categories.values():
+                if reason in group["reasons"] and url not in group["urls"]:
+                    group["urls"].append(url)
+        return categories
+
+    def simple_repair_plan_text(self):
+        groups = self.simple_repair_plan_groups()
+        active = [group for group in groups.values() if group.get("urls")]
+        if not active:
+            return "修复方案：等待诊断，或当前结果不需要自动修复"
+        parts = [f"{group['label']} {len(group['urls'])} 条 -> {group['button']}" for group in active]
+        return "修复方案：" + "；".join(parts)
+
+    def start_complete_retry_for_urls(self, urls, status_text, progress_text):
+        urls = [normalize_url(url) for url in urls or []]
+        urls = [url for index, url in enumerate(urls) if url and url not in urls[:index]]
+        if not urls:
+            self.simple_information("提示", "当前没有可重抓的网址。")
+            return False
+        if self.worker:
+            self.simple_status_label.setText("正在采集，请先等待当前任务结束")
+            self.simple_information("提示", "正在采集，请先等待当前任务结束。")
+            return False
+        depth_config = self.apply_complete_crawl_settings()
+        self.simple_select_default_template()
+        self.simple_merge_subpage_results = True
+        self.simple_subpage_parent_map = {}
+        self.simple_url_input.setPlainText("\n".join(urls))
+        self.sync_simple_inputs_to_background()
+        self.simple_status_label.setText(status_text)
+        self.simple_progress_label.setText(progress_text)
+        self.append_log(f"{status_text}：{len(urls)} 个网址。")
+        self.start_collecting(
+            skip_confirmation=True,
+            runtime_overrides={
+                "scrape_subpages": True,
+                "subpage_limit": depth_config["subpage_limit"],
+                "selected_subpage_urls": [],
+                "simple_auto_subpages": True,
+                "simple_collect_depth": depth_config["label"],
+                "skip_unchanged": False,
+            },
+        )
+        return True
+
+    def simple_apply_repair_plan_action(self, category):
+        groups = self.simple_repair_plan_groups()
+        group = groups.get(category, {})
+        urls = group.get("urls", [])
+        if not urls:
+            self.simple_status_label.setText(f"修复方案：当前没有需要{group.get('button', '处理')}的网址")
+            return False
+        if category == "fields":
+            if self.maybe_start_simple_ai_suggest_fields(urls):
+                self.simple_status_label.setText(f"修复方案：AI 正在为 {len(urls)} 条结果整理字段")
+            else:
+                self.simple_status_label.setText("修复方案：请检查 AI 设置后再修字段")
+            return True
+        if category == "login":
+            self.apply_blocked_crawl_settings()
+            self.simple_url_input.setPlainText("\n".join(urls))
+            self.sync_simple_inputs_to_background()
+            self.simple_status_label.setText(f"修复方案：已启用真实浏览器和保留登录，准备重试 {len(urls)} 条")
+            self.simple_progress_label.setText("下一次采集会保留登录状态，并用更慢速度访问")
+            return True
+        if category == "pagination":
+            return self.start_complete_retry_for_urls(
+                urls,
+                f"正在完整模式重抓 {len(urls)} 条分页不足结果",
+                "后台：提高翻页、滚动和等待，继续读取下一页/更多内容",
+            )
+        if category == "subpages":
+            return self.start_complete_retry_for_urls(
+                urls,
+                f"正在完整模式重抓 {len(urls)} 条子链接不足结果",
+                "后台：自动进入同站详情/商品子链接，补图片、价格、规格和正文",
+            )
+        return False
+
     def primary_simple_crawl_diagnosis(self):
         rows = self.simple_crawl_diagnosis_rows()
         weak_rows = [row for row in rows if int(row.get("score") or 0) < 60 or row.get("severity") != "正常"]
@@ -2567,6 +2709,8 @@ class UniversalMainWindow(QMainWindow):
     def refresh_simple_crawl_diagnosis(self):
         if hasattr(self, "simple_diagnosis_label"):
             self.simple_diagnosis_label.setText(self.simple_crawl_diagnosis_text())
+        if hasattr(self, "simple_repair_plan_label"):
+            self.simple_repair_plan_label.setText(self.simple_repair_plan_text())
 
     def refresh_simple_result_summary(self):
         if hasattr(self, "simple_result_summary_label"):
