@@ -561,6 +561,9 @@ class UniversalMainWindow(QMainWindow):
         self.task_queue_rows = []
         self.simple_merge_subpage_results = False
         self.simple_subpage_parent_map = {}
+        self.low_quality_retry_baseline = {}
+        self.low_quality_retry_active = False
+        self.low_quality_retry_report_rows = []
         self.last_real_scrape_check_result = {}
         self.current_run_id = None
         self.current_run_start_count = 0
@@ -861,6 +864,25 @@ class UniversalMainWindow(QMainWindow):
             )
         return queue_rows
 
+    def low_quality_retry_baseline_for_urls(self, urls, records=None):
+        selected_urls = {normalize_url(url) for url in urls or [] if normalize_url(url)}
+        if not selected_urls:
+            return {}
+        baseline = {}
+        for record in self.low_quality_records(records):
+            url = normalize_url(record.get("url", ""))
+            if not url or url not in selected_urls:
+                continue
+            self.ensure_record_completeness(record)
+            baseline[url] = {
+                "url": url,
+                "title": record.get("title") or "(无标题)",
+                "score": int(record.get("completeness_score") or 0),
+                "label": record.get("completeness_label", ""),
+                "missing": list(record.get("completeness_missing", []) or []),
+            }
+        return baseline
+
     def confirm_low_quality_retry_queue(self, queue_rows):
         self.last_low_quality_retry_queue = [dict(row) for row in queue_rows or []]
         if not queue_rows:
@@ -926,6 +948,10 @@ class UniversalMainWindow(QMainWindow):
             self.simple_status_label.setText("当前没有低完整度结果需要重抓")
             self.simple_information("提示", "当前没有低完整度结果需要重抓。")
             return False
+        self.low_quality_retry_baseline = self.low_quality_retry_baseline_for_urls(urls)
+        self.low_quality_retry_active = True
+        self.low_quality_retry_report_rows = []
+        self.refresh_low_quality_retry_report_summary()
         complete_index = self.simple_depth_combo.findData("complete") if hasattr(self, "simple_depth_combo") else -1
         if complete_index >= 0:
             self.simple_depth_combo.setCurrentIndex(complete_index)
@@ -952,6 +978,68 @@ class UniversalMainWindow(QMainWindow):
             },
         )
         return True
+
+    def retry_report_captured_fields(self, before_missing, after_missing):
+        before_set = set(before_missing or [])
+        after_set = set(after_missing or [])
+        captured = sorted(before_set - after_set)
+        still_missing = sorted(after_set)
+        return captured, still_missing
+
+    def retry_report_summary_text(self):
+        rows = list(getattr(self, "low_quality_retry_report_rows", []) or [])
+        if not rows:
+            return "重抓效果：暂无"
+        total_delta = sum(int(row.get("delta") or 0) for row in rows)
+        average_delta = int(total_delta / len(rows)) if rows else 0
+        improved = sum(1 for row in rows if int(row.get("delta") or 0) > 0)
+        captured_values = []
+        still_missing_values = []
+        for row in rows:
+            captured_values.extend(row.get("captured_fields", []) or [])
+            still_missing_values.extend(row.get("still_missing_fields", []) or [])
+        captured_unique = list(dict.fromkeys(captured_values))[:4]
+        still_missing_unique = list(dict.fromkeys(still_missing_values))[:4]
+        captured_text = "、".join(captured_unique) if captured_unique else "暂无新增"
+        still_missing_text = "、".join(still_missing_unique) if still_missing_unique else "无"
+        return (
+            f"重抓效果：已回收 {len(rows)} 条，提升 {improved} 条，平均 {average_delta:+d} 分；"
+            f"补到 {captured_text}；仍缺 {still_missing_text}"
+        )
+
+    def refresh_low_quality_retry_report_summary(self):
+        if hasattr(self, "simple_retry_report_label"):
+            self.simple_retry_report_label.setText(self.retry_report_summary_text())
+
+    def update_low_quality_retry_report(self, record):
+        if not getattr(self, "low_quality_retry_active", False):
+            return
+        url = normalize_url(record.get("url", ""))
+        baseline = getattr(self, "low_quality_retry_baseline", {}).get(url)
+        if not baseline:
+            return
+        self.ensure_record_completeness(record)
+        before_score = int(baseline.get("score") or 0)
+        after_score = int(record.get("completeness_score") or 0)
+        captured, still_missing = self.retry_report_captured_fields(
+            baseline.get("missing", []),
+            record.get("completeness_missing", []),
+        )
+        row = {
+            "url": url,
+            "title": record.get("title") or baseline.get("title") or "(无标题)",
+            "before": before_score,
+            "after": after_score,
+            "delta": after_score - before_score,
+            "captured": "、".join(captured) if captured else "暂无新增",
+            "still_missing": "、".join(still_missing) if still_missing else "资料较完整",
+            "captured_fields": captured,
+            "still_missing_fields": still_missing,
+        }
+        rows = [item for item in getattr(self, "low_quality_retry_report_rows", []) if item.get("url") != url]
+        rows.append(row)
+        self.low_quality_retry_report_rows = rows
+        self.refresh_low_quality_retry_report_summary()
 
     def set_collecting_buttons_state(self, running):
         running = bool(running)
@@ -1076,6 +1164,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_result_summary_label.setObjectName("simpleSummaryText")
         self.simple_result_summary_label.setWordWrap(True)
         status_layout.addWidget(self.simple_result_summary_label)
+
+        self.simple_retry_report_label = QLabel("重抓效果：暂无")
+        self.simple_retry_report_label.setObjectName("simpleSummaryText")
+        self.simple_retry_report_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_retry_report_label)
         layout.addWidget(status_box)
 
         self.simple_ai_box = QGroupBox("AI 设置")
@@ -5811,6 +5904,7 @@ class UniversalMainWindow(QMainWindow):
         self.fill_result_quality_table()
         self.refresh_new_user_flow_status("export")
         self.update_queue_result_summary_for_record(record)
+        self.update_low_quality_retry_report(record)
 
     def record_status_text(self, record):
         if record.get("error"):
@@ -6077,6 +6171,10 @@ class UniversalMainWindow(QMainWindow):
             self.simple_status_label.setText("准备就绪")
         if hasattr(self, "simple_progress_label"):
             self.simple_progress_label.setText("流程：输入网址 -> 开始采集 -> 导出结果")
+        self.low_quality_retry_baseline = {}
+        self.low_quality_retry_active = False
+        self.low_quality_retry_report_rows = []
+        self.refresh_low_quality_retry_report_summary()
         self.set_simple_flow_step("输入")
         self.refresh_simple_result_summary()
         self.refresh_result_status_summary()

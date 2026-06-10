@@ -113,6 +113,7 @@ def run_universal_self_test():
         "simple_ai_test_button",
         "simple_result_table",
         "simple_result_summary_label",
+        "simple_retry_report_label",
         "simple_step_labels",
         "simple_recent_files_table",
         "simple_recent_records_table",
@@ -404,6 +405,34 @@ def run_universal_self_test():
     low_quality_overrides = low_quality_starts[-1].get("runtime_overrides", {})
     if low_quality_overrides.get("subpage_limit") != 10 or low_quality_overrides.get("simple_collect_depth") != "完整" or low_quality_overrides.get("skip_unchanged") is not False:
         raise AssertionError(f"低完整度一键重抓未使用完整重采参数：{low_quality_overrides}")
+    if "https://example.com/weak" not in getattr(window, "low_quality_retry_baseline", {}):
+        raise AssertionError("低完整度重抓未保存重抓前完整度基线")
+    window.add_record(
+        {
+            "collected_at": "2026-06-09 10:43:00",
+            "url": "https://example.com/weak",
+            "domain": "example.com",
+            "template_name": "通用自动识别",
+            "title": "低完整度页",
+            "price": "88",
+            "published_time": "2026-06-09",
+            "author": "Example",
+            "body": "这是重抓后补充出的详情正文，包含足够多的产品描述、参数、规格和页面内容，用于证明完整模式采集到了更多资料。",
+            "images": [{"url": "https://example.com/weak.jpg"}],
+            "links": [{"text": "详情", "url": "https://example.com/detail"}],
+            "tables": [[["规格", "值"], ["颜色", "黑色"]]],
+            "fingerprint": "weak-retry-rich",
+        }
+    )
+    retry_report_rows = getattr(window, "low_quality_retry_report_rows", [])
+    report_row = next((row for row in retry_report_rows if row.get("url") == "https://example.com/weak"), {})
+    if not report_row or report_row.get("after", 0) <= report_row.get("before", 0):
+        raise AssertionError(f"低完整度重抓未生成前后提升报告：{retry_report_rows}")
+    if "图片" not in report_row.get("captured", "") or "价格" not in report_row.get("captured", ""):
+        raise AssertionError(f"低完整度重抓报告未展示补到的字段：{report_row}")
+    retry_report_text = window.simple_retry_report_label.text()
+    if "重抓效果" not in retry_report_text or "+" not in retry_report_text or "补到" not in retry_report_text:
+        raise AssertionError(f"低完整度重抓效果摘要不完整：{retry_report_text}")
     window.simple_merge_subpage_results = False
     window.set_simple_flow_step("导出")
     window.simple_ai_field_rules = []
