@@ -133,7 +133,9 @@ class CollectorDatabase:
             os.makedirs(os.path.dirname(os.path.abspath(self.db_file)), exist_ok=True)
 
     def connect(self):
-        return sqlite3.connect(self.db_file)
+        conn = sqlite3.connect(self.db_file, timeout=30)
+        conn.execute("PRAGMA busy_timeout = 30000")
+        return conn
 
     def init_db(self):
         with self.connect() as conn:
@@ -206,14 +208,19 @@ class CollectorDatabase:
 
     def save_record(self, record, skip_unchanged=False):
         fingerprint = record.get("fingerprint") or content_fingerprint(record)
-        previous = self.latest_for_url(record.get("url", ""))
-        changed = bool(previous and previous != fingerprint)
-        if skip_unchanged and previous == fingerprint:
-            record["fingerprint"] = fingerprint
-            record["changed"] = False
-            record["duplicate"] = True
-            return record
         with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT fingerprint FROM records WHERE url = ? ORDER BY id DESC LIMIT 1",
+                (record.get("url", ""),),
+            ).fetchone()
+            previous = row[0] if row else ""
+            changed = bool(previous and previous != fingerprint)
+            if skip_unchanged and previous == fingerprint:
+                record["fingerprint"] = fingerprint
+                record["changed"] = False
+                record["duplicate"] = True
+                return record
             conn.execute(
                 """
                 INSERT INTO records (

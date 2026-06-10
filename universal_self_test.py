@@ -31,6 +31,17 @@ def run_universal_self_test():
     schedule_file = runtime["schedule_file"]
     change_alert_state_file = runtime["change_alert_state_file"]
     risk_confirmation_file = runtime["risk_confirmation_file"]
+    normalize_cases = [
+        ("example.com/path#frag", "", "https://example.com/path"),
+        ("https://EXAMPLE.com:443/path/?utm_source=x&id=1#frag", "", "https://example.com/path?id=1"),
+        ("//example.com/a?fbclid=abc&b=2", "", "https://example.com/a?b=2"),
+        ("/detail?id=1&utm_medium=y#tab", "https://example.com/base/", "https://example.com/detail?id=1"),
+        ("javascript:void(0)", "", ""),
+    ]
+    for raw_url, base_url, expected_url in normalize_cases:
+        normalized_url = normalize_url(raw_url, base_url)
+        if normalized_url != expected_url:
+            raise AssertionError(f"URL 归一化不符合预期：{raw_url} + {base_url} => {normalized_url} != {expected_url}")
     ensure_runtime_dirs()
     app = QApplication.instance() or QApplication(sys.argv)
     window = UniversalMainWindow()

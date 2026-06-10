@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from html import unescape
 from typing import Callable, Iterable, Optional
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -509,6 +509,7 @@ BROWSER_PROFILE_DIR = os.path.abspath(
         os.path.join(DATA_DIR, "browser-profile"),
     )
 )
+LOGIN_BROWSER_SESSIONS = []
 STARTUP_LOG_FILE = os.path.abspath(
     os.environ.get(
         "UNIVERSAL_COLLECTOR_STARTUP_LOG_FILE",
@@ -916,9 +917,27 @@ def new_schedule_item(name, interval_minutes, config):
     )
 
 
+TRACKING_QUERY_KEYS = {
+    "fbclid",
+    "gclid",
+    "gbraid",
+    "wbraid",
+    "msclkid",
+    "yclid",
+    "_hsenc",
+    "_hsmi",
+    "mc_cid",
+    "mc_eid",
+    "igshid",
+}
+
+
 def normalize_url(url, base_url=""):
     url = clean_text(url, 2000)
     if not url:
+        return ""
+    lower_url = url.lower()
+    if lower_url.startswith(("javascript:", "mailto:", "tel:")):
         return ""
     if base_url:
         url = urljoin(base_url, url)
@@ -928,7 +947,33 @@ def normalize_url(url, base_url=""):
             url = "https:" + url
         elif "." in url and not url.lower().startswith(("javascript:", "mailto:", "tel:")):
             url = "https://" + url
-    return url
+        parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        return ""
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return ""
+    netloc = hostname
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+        netloc = f"{netloc}:{port}"
+    path = parsed.path or ""
+    if path == "/":
+        path = ""
+    elif path:
+        path = path.rstrip("/")
+    query_items = []
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        lower_key = key.lower()
+        if lower_key.startswith("utm_") or lower_key in TRACKING_QUERY_KEYS:
+            continue
+        query_items.append((key, value))
+    query = urlencode(sorted(query_items), doseq=True)
+    return urlunparse((scheme, netloc, path, "", query, ""))
 
 
 def url_domain(url):
@@ -3778,15 +3823,43 @@ class UniversalCollector:
         from playwright.sync_api import sync_playwright
 
         os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
-        with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
+        playwright = sync_playwright().start()
+        context = None
+        try:
+            context = playwright.chromium.launch_persistent_context(
                 BROWSER_PROFILE_DIR,
                 headless=False,
                 user_agent=DEFAULT_USER_AGENT,
             )
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+            session = {"playwright": playwright, "context": context}
+
+            def cleanup_closed_session():
+                if session in LOGIN_BROWSER_SESSIONS:
+                    LOGIN_BROWSER_SESSIONS.remove(session)
+                try:
+                    playwright.stop()
+                except Exception:
+                    pass
+
+            try:
+                context.on("close", lambda *_args: cleanup_closed_session())
+            except Exception:
+                pass
+            LOGIN_BROWSER_SESSIONS.append(session)
             return True
+        except Exception:
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            try:
+                playwright.stop()
+            except Exception:
+                pass
+            raise
 
     def expand_pages(self, url, template, use_browser, page_limit, keep_login_state=False):
         page_limit = max(1, min(int(page_limit or 1), 50))

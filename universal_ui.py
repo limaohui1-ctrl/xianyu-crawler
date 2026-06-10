@@ -229,7 +229,6 @@ class CollectWorker(QObject):
             for record in results:
                 if self.emit_record_once(record):
                     emitted_count += 1
-                failed_count = sum(1 for item in results[:emitted_count] if item.get("error"))
             emitted_count = len(self._emitted_record_keys)
             if total_count:
                 self.progress_signal.emit(
