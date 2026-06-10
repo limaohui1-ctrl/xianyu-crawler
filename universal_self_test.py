@@ -54,6 +54,7 @@ from universal_core import (
     refresh_ai_provider_models,
     runtime_self_test_error_log_file,
     runtime_startup_log_file,
+    runtime_diagnostic_log_file,
     save_ai_settings,
     scene_template_presets,
     summarize_ai_call_logs,
@@ -96,6 +97,19 @@ def run_universal_self_test():
         if normalized_url != expected_url:
             raise AssertionError(f"URL 归一化不符合预期：{raw_url} + {base_url} => {normalized_url} != {expected_url}")
     ensure_runtime_dirs()
+    with open(schedule_file, "w", encoding="utf-8") as f:
+        f.write("{bad schedule json")
+    if load_schedules() != []:
+        raise AssertionError("损坏任务计划应降级为空列表")
+    diagnostic_file = runtime_diagnostic_log_file()
+    if not os.path.exists(diagnostic_file):
+        raise AssertionError("可恢复异常未写入诊断日志")
+    with open(diagnostic_file, "r", encoding="utf-8") as f:
+        diagnostic_text = f.read()
+    if "读取任务计划失败" not in diagnostic_text or "JSONDecodeError" not in diagnostic_text:
+        raise AssertionError(f"损坏任务计划诊断日志缺少关键信息：{diagnostic_text}")
+    if os.path.exists(schedule_file):
+        os.remove(schedule_file)
     app = QApplication.instance() or QApplication(sys.argv)
     window = UniversalMainWindow()
     self_test_stage("window ready")
@@ -3425,6 +3439,23 @@ def run_universal_self_test():
             raise AssertionError("子页面链接扫描未发现详情候选")
         if not any(item.get("selected") and "product/10001" in item.get("url", "") for item in candidates):
             raise AssertionError("详情页候选未默认选中")
+        tricky_links = [
+            {"url": "/#/product/999", "text": "商品详情"},
+            {"url": "/en", "text": "English"},
+            {"url": "/category/product", "text": "商品分类"},
+            {"url": "/search?q=phone", "text": "搜索手机"},
+            {"url": "/product/10001?sort=price", "text": "排序"},
+            {"url": "/product/10002", "text": "商品详情"},
+        ]
+        tricky_candidates = collector.rank_subpage_links(tricky_links, site_base, limit=20)
+        selected_tricky_urls = [item.get("url", "") for item in tricky_candidates if item.get("selected")]
+        if not any("/product/10002" in item for item in selected_tricky_urls):
+            raise AssertionError(f"强详情链接未被自动选中：{tricky_candidates}")
+        for rejected_fragment in ("/en", "/category/product", "/search", "sort=price"):
+            if any(rejected_fragment in item for item in selected_tricky_urls):
+                raise AssertionError(f"导航/语言/筛选链接被错误自动选中：{selected_tricky_urls}")
+        if any(item.get("type") == "SPA 路由" and item.get("selected") for item in tricky_candidates):
+            raise AssertionError(f"SPA 锚点路由不应默认深抓：{tricky_candidates}")
         window.show_subpage_link_candidates(candidates)
         if window.subpage_link_table.rowCount() < 3:
             raise AssertionError("子页面候选表格未显示扫描结果")
@@ -3559,6 +3590,39 @@ def run_universal_self_test():
         window.record_crawl_discovery_message("子页面发现：候选 4 个，选中 2 个，选中=商品页:http://example.com/p/1，排除示例=导航页:http://example.com/help")
         if "自动翻页候选" not in window.simple_discovery_label.text() or "子页面发现" not in window.simple_discovery_label.text():
             raise AssertionError(f"普通首页未展示采集发现记录：{window.simple_discovery_label.text()}")
+        browser_reuse_events = []
+        reuse_collector = UniversalCollector(logger=lambda message: browser_reuse_events.append(("log", message)))
+
+        def fake_open_browser_session(keep_login_state=False, headless=True):
+            browser_reuse_events.append(("open", keep_login_state, headless))
+            return {"context": "fake-context"}
+
+        def fake_close_browser_session(session):
+            browser_reuse_events.append(("close", session.get("context")))
+
+        def fake_fetch_with_browser_session(session, url, scroll_times=0):
+            browser_reuse_events.append(("fetch", session.get("context"), url))
+            return f"<html><body><h1>复用页面</h1><p>{url}</p></body></html>"
+
+        reuse_collector.open_browser_session = fake_open_browser_session
+        reuse_collector.close_browser_session = fake_close_browser_session
+        reuse_collector.fetch_with_browser_session = fake_fetch_with_browser_session
+        reuse_results = reuse_collector.collect_urls(
+            [site_base, site_base.rstrip("/") + "/page2"],
+            use_browser=True,
+            page_limit=1,
+            delay_seconds=0,
+            scrape_subpages=False,
+            skip_unchanged=False,
+        )
+        if len(reuse_results) != 2:
+            raise AssertionError("浏览器会话复用样例未采集两个 URL")
+        if len([event for event in browser_reuse_events if event[0] == "open"]) != 1:
+            raise AssertionError(f"批量采集不应每页重开浏览器：{browser_reuse_events}")
+        if len([event for event in browser_reuse_events if event[0] == "close"]) != 1:
+            raise AssertionError(f"批量采集应在结束时关闭一次浏览器会话：{browser_reuse_events}")
+        if len([event for event in browser_reuse_events if event[0] == "fetch"]) != 2:
+            raise AssertionError(f"两个 URL 应复用同一浏览器会话抓取：{browser_reuse_events}")
         fallback_logs = []
         fallback_collector = UniversalCollector(logger=lambda message: fallback_logs.append(message))
         fallback_collector.fetch_with_playwright = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("browser unavailable"))

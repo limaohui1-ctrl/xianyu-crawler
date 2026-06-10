@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import time
+import traceback
 from copy import deepcopy
 from dataclasses import dataclass, field
 from html import unescape
@@ -577,6 +578,10 @@ def runtime_change_alert_log_file():
     return os.path.join(runtime_data_dir(), "change_alerts.json")
 
 
+def runtime_diagnostic_log_file():
+    return os.path.join(runtime_data_dir(), "diagnostics.log")
+
+
 def ensure_runtime_dirs():
     os.makedirs(runtime_data_dir(), exist_ok=True)
     os.makedirs(os.path.dirname(runtime_db_file()), exist_ok=True)
@@ -590,6 +595,32 @@ def ensure_runtime_dirs():
     os.makedirs(os.path.dirname(BROWSER_PROFILE_DIR), exist_ok=True)
     os.makedirs(os.path.dirname(runtime_startup_log_file()), exist_ok=True)
     os.makedirs(os.path.dirname(runtime_self_test_error_log_file()), exist_ok=True)
+    os.makedirs(os.path.dirname(runtime_diagnostic_log_file()), exist_ok=True)
+
+
+def record_recoverable_error(scope, exc, logger=None, details=None):
+    error_text = f"{type(exc).__name__}: {exc}"
+    message = f"{scope}：{error_text}"
+    if logger:
+        try:
+            logger(message)
+        except Exception:
+            pass
+    try:
+        os.makedirs(os.path.dirname(runtime_diagnostic_log_file()), exist_ok=True)
+        payload = {
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "scope": scope,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "details": details or {},
+            "traceback": traceback.format_exc(limit=8),
+        }
+        with open(runtime_diagnostic_log_file(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return message
 
 
 class CollectorDatabase(_CoreCollectorDatabase):
@@ -754,7 +785,12 @@ def load_schedules(file_path=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except Exception:
+    except Exception as exc:
+        record_recoverable_error(
+            "读取任务计划失败，已使用空计划",
+            exc,
+            details={"file": file_path},
+        )
         return []
     if isinstance(payload, dict):
         items = payload.get("schedules", [])
@@ -782,7 +818,12 @@ def load_change_alert_states(file_path=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except Exception:
+    except Exception as exc:
+        record_recoverable_error(
+            "读取变更提醒状态失败，已使用空状态",
+            exc,
+            details={"file": file_path},
+        )
         return {}
     states = payload.get("states", payload) if isinstance(payload, dict) else {}
     if not isinstance(states, dict):
@@ -3381,86 +3422,113 @@ class UniversalCollector:
             if progress_callback:
                 try:
                     progress_callback(dict(progress))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    record_recoverable_error(
+                        "采集进度回调失败，已继续采集",
+                        exc,
+                        logger=self.log,
+                    )
 
         selected_subpages = []
         for item in selected_subpage_urls or []:
             normalized = normalize_url(item)
             if normalized and normalized not in selected_subpages:
                 selected_subpages.append(normalized)
-        emit_progress("准备采集")
-        for raw_url in urls:
-            if stop_requested and stop_requested():
-                break
-            url = normalize_url(raw_url)
-            if not url:
-                continue
-            emit_progress("选择模板", url)
-            visited.add(url)
-            template = self.template_store.choose_for_url(url, template_name)
-            template.scroll_times = scroll_times
-            target_urls = [url]
-            if page_limit > 1:
-                emit_progress("展开分页", url)
-                target_urls = self.expand_pages(
-                    url,
-                    template,
-                    use_browser,
-                    page_limit,
+
+        browser_session = None
+        effective_use_browser = bool(use_browser)
+        if use_browser:
+            try:
+                browser_session = self.open_browser_session(
                     keep_login_state=keep_login_state,
+                    headless=True,
                 )
-                progress["total"] = max(progress["total"], progress["processed"] + len(target_urls))
-                emit_progress("分页完成", target_urls[-1] if target_urls else url)
-            for target_url in target_urls:
+                self.log("已启动可复用浏览器会话，本轮分页、主页面和子页面将复用同一个会话。")
+            except Exception as exc:
+                effective_use_browser = False
+                record_recoverable_error(
+                    "浏览器批量会话启动失败，已改用普通网页读取",
+                    exc,
+                    logger=self.log,
+                )
+        try:
+            emit_progress("准备采集")
+            for raw_url in urls:
                 if stop_requested and stop_requested():
                     break
-                emit_progress("采集页面", target_url)
-                record = self.collect_one(
-                    target_url,
-                    template,
-                    use_browser,
-                    scroll_times,
-                    keep_login_state=keep_login_state,
-                )
-                record["run_id"] = int(run_id or 0)
-                self.database.save_record(record, skip_unchanged=skip_unchanged)
-                results.append(record)
-                emit_progress("页面完成", target_url, increment=True, failed=bool(record.get("error")))
-                if selected_subpages:
-                    emit_progress("准备已选子页面", target_url)
-                    subpages = self.selected_subpage_urls_for_parent(selected_subpages, target_url, visited)
-                elif scrape_subpages and int(subpage_limit or 0) > 0:
-                    emit_progress("扫描子页面", target_url)
-                    subpages = self.subpage_urls_from_record(record, target_url, int(subpage_limit), visited)
-                else:
-                    subpages = []
-                if subpages:
-                    progress["total"] = max(progress["total"], progress["processed"] + len(subpages))
-                    emit_progress("子页面待采集", subpages[0])
-                if subpages:
-                    for subpage_url in subpages:
-                        if stop_requested and stop_requested():
-                            break
-                        emit_progress("采集子页面", subpage_url)
-                        sub_record = self.collect_one(
-                            subpage_url,
-                            template,
-                            use_browser,
-                            scroll_times,
-                            keep_login_state=keep_login_state,
-                        )
-                        sub_record["run_id"] = int(run_id or 0)
-                        self.database.save_record(sub_record, skip_unchanged=skip_unchanged)
-                        results.append(sub_record)
-                        emit_progress("子页面完成", subpage_url, increment=True, failed=bool(sub_record.get("error")))
-                        visited.add(subpage_url)
-                        if delay_seconds > 0:
-                            time.sleep(delay_seconds)
-                if delay_seconds > 0:
-                    time.sleep(delay_seconds)
-        emit_progress("采集结束")
-        return results
+                url = normalize_url(raw_url)
+                if not url:
+                    continue
+                emit_progress("选择模板", url)
+                visited.add(url)
+                template = self.template_store.choose_for_url(url, template_name)
+                template.scroll_times = scroll_times
+                target_urls = [url]
+                if page_limit > 1:
+                    emit_progress("展开分页", url)
+                    target_urls = self.expand_pages(
+                        url,
+                        template,
+                        effective_use_browser,
+                        page_limit,
+                        keep_login_state=keep_login_state,
+                        browser_session=browser_session,
+                    )
+                    progress["total"] = max(progress["total"], progress["processed"] + len(target_urls))
+                    emit_progress("分页完成", target_urls[-1] if target_urls else url)
+                for target_url in target_urls:
+                    if stop_requested and stop_requested():
+                        break
+                    emit_progress("采集页面", target_url)
+                    record = self.collect_one(
+                        target_url,
+                        template,
+                        effective_use_browser,
+                        scroll_times,
+                        keep_login_state=keep_login_state,
+                        browser_session=browser_session,
+                    )
+                    record["run_id"] = int(run_id or 0)
+                    self.database.save_record(record, skip_unchanged=skip_unchanged)
+                    results.append(record)
+                    emit_progress("页面完成", target_url, increment=True, failed=bool(record.get("error")))
+                    if selected_subpages:
+                        emit_progress("准备已选子页面", target_url)
+                        subpages = self.selected_subpage_urls_for_parent(selected_subpages, target_url, visited)
+                    elif scrape_subpages and int(subpage_limit or 0) > 0:
+                        emit_progress("扫描子页面", target_url)
+                        subpages = self.subpage_urls_from_record(record, target_url, int(subpage_limit), visited)
+                    else:
+                        subpages = []
+                    if subpages:
+                        progress["total"] = max(progress["total"], progress["processed"] + len(subpages))
+                        emit_progress("子页面待采集", subpages[0])
+                    if subpages:
+                        for subpage_url in subpages:
+                            if stop_requested and stop_requested():
+                                break
+                            emit_progress("采集子页面", subpage_url)
+                            sub_record = self.collect_one(
+                                subpage_url,
+                                template,
+                                effective_use_browser,
+                                scroll_times,
+                                keep_login_state=keep_login_state,
+                                browser_session=browser_session,
+                            )
+                            sub_record["run_id"] = int(run_id or 0)
+                            self.database.save_record(sub_record, skip_unchanged=skip_unchanged)
+                            results.append(sub_record)
+                            emit_progress("子页面完成", subpage_url, increment=True, failed=bool(sub_record.get("error")))
+                            visited.add(subpage_url)
+                            if delay_seconds > 0:
+                                time.sleep(delay_seconds)
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
+            emit_progress("采集结束")
+            return results
+        finally:
+            self.close_browser_session(browser_session)
 
     def selected_subpage_urls_for_parent(self, selected_subpages, parent_url, visited):
         parent_domain = url_domain(parent_url)
@@ -3554,10 +3622,20 @@ class UniversalCollector:
             if any(token in link_url.lower() for token in ("javascript:", "mailto:", "tel:")):
                 continue
             same_domain = url_domain(link_url) == parent_domain
-            score, link_type, reason = self.score_subpage_link(link_url, text, same_domain)
+            score, link_type, reason = self.score_subpage_link(
+                link_url,
+                text,
+                same_domain,
+                parent_url=parent_url,
+                raw_url=raw_url,
+            )
             candidates.append(
                 {
-                    "selected": bool(same_domain and score >= 25),
+                    "selected": bool(
+                        same_domain
+                        and score >= 45
+                        and link_type not in ("导航页", "筛选/列表页", "语言切换", "SPA 路由")
+                    ),
                     "text": compact_text(text or parsed.path.strip("/") or parsed.netloc, 160),
                     "url": link_url,
                     "domain": url_domain(link_url),
@@ -3570,9 +3648,10 @@ class UniversalCollector:
         candidates.sort(key=lambda item: (not item.get("selected"), -int(item.get("score", 0)), item.get("url", "")))
         return candidates[: max(1, int(limit or 120))]
 
-    def score_subpage_link(self, link_url, text, same_domain):
+    def score_subpage_link(self, link_url, text, same_domain, parent_url="", raw_url=""):
         lower_url = link_url.lower()
         lower_text = (text or "").lower()
+        lower_raw_url = str(raw_url or "").lower()
         score = 0
         reasons = []
         link_type = "普通链接"
@@ -3583,6 +3662,21 @@ class UniversalCollector:
             score -= 80
             reasons.append("站外链接，默认不深抓")
             link_type = "站外链接"
+        if normalize_url(link_url) == normalize_url(parent_url):
+            score -= 60
+            reasons.append("与当前页相同")
+            link_type = "导航页"
+        if "#/" in lower_raw_url or "#!" in lower_raw_url:
+            score -= 60
+            reasons.append("SPA 锚点路由，需手动确认")
+            link_type = "SPA 路由"
+        if re.search(r"(^|/)(zh|zh-cn|zh-hans|zh-hant|en|en-us|ja|ko|fr|de|es)(/|$)", lower_url) or re.search(
+            r"([?&](lang|locale|language)=)",
+            lower_url,
+        ):
+            score -= 55
+            reasons.append("更像语言切换")
+            link_type = "语言切换"
         positive_tokens = {
             "detail": "详情页",
             "item": "详情页",
@@ -3608,7 +3702,8 @@ class UniversalCollector:
         for token, token_type in positive_tokens.items():
             if token in lower_url or token in lower_text:
                 score += 18
-                link_type = token_type
+                if link_type not in ("语言切换", "SPA 路由"):
+                    link_type = token_type
                 reasons.append(f"疑似{token_type}")
                 break
         negative_tokens = (
@@ -3626,6 +3721,13 @@ class UniversalCollector:
             "help",
             "about",
             "contact",
+            "category",
+            "categories",
+            "search",
+            "filter",
+            "sort",
+            "tag",
+            "tags",
             "登录",
             "注册",
             "购物车",
@@ -3636,12 +3738,27 @@ class UniversalCollector:
             "帮助",
             "关于",
             "联系",
+            "分类",
+            "筛选",
+            "排序",
+            "搜索",
+            "标签",
         )
         if any(token in lower_url or token in lower_text for token in negative_tokens):
             score -= 35
             reasons.append("更像导航/账户/说明页")
             if link_type == "普通链接":
                 link_type = "导航页"
+        if re.search(r"([?&](sort|filter|category|tag|keyword|q|search)=)", lower_url):
+            score -= 45
+            reasons.append("更像筛选/搜索参数")
+            if link_type not in ("语言切换", "SPA 路由"):
+                link_type = "筛选/列表页"
+        if re.search(r"(^|/)(category|categories|search|tags?)(/|$)", lower_url):
+            score -= 45
+            reasons.append("更像列表/分类页")
+            if link_type not in ("语言切换", "SPA 路由"):
+                link_type = "筛选/列表页"
         path_parts = [part for part in urlparse(link_url).path.split("/") if part]
         if len(path_parts) >= 2:
             score += 8
@@ -3654,6 +3771,77 @@ class UniversalCollector:
             reasons.append("链接文字过长")
         return score, link_type, "；".join(dict.fromkeys(reasons)) or "可手动确认"
 
+    def open_browser_session(self, keep_login_state=False, headless=True):
+        from playwright.sync_api import sync_playwright
+
+        playwright = sync_playwright().start()
+        browser = None
+        context = None
+        try:
+            if keep_login_state:
+                os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
+                context = playwright.chromium.launch_persistent_context(
+                    BROWSER_PROFILE_DIR,
+                    headless=headless,
+                    user_agent=DEFAULT_USER_AGENT,
+                )
+            else:
+                browser = playwright.chromium.launch(headless=headless)
+                context = browser.new_context(user_agent=DEFAULT_USER_AGENT)
+            return {"playwright": playwright, "browser": browser, "context": context}
+        except Exception:
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            try:
+                playwright.stop()
+            except Exception:
+                pass
+            raise
+
+    def close_browser_session(self, browser_session):
+        if not browser_session:
+            return
+        for key in ("context", "browser"):
+            target = browser_session.get(key)
+            if not target:
+                continue
+            try:
+                target.close()
+            except Exception as exc:
+                record_recoverable_error(
+                    f"关闭浏览器{key}失败，已继续退出",
+                    exc,
+                    logger=self.log,
+                )
+        playwright = browser_session.get("playwright")
+        if playwright:
+            try:
+                playwright.stop()
+            except Exception as exc:
+                record_recoverable_error("停止 Playwright 失败，已继续退出", exc, logger=self.log)
+
+    def fetch_with_browser_session(self, browser_session, url, scroll_times=DEFAULT_SCROLL_TIMES):
+        context = (browser_session or {}).get("context")
+        if context is None:
+            raise RuntimeError("浏览器会话不存在")
+        page = context.new_page()
+        try:
+            self.prepare_dynamic_page(page, url, scroll_times)
+            return page.content()
+        finally:
+            try:
+                page.close()
+            except Exception as exc:
+                record_recoverable_error("关闭采集页面失败，已继续采集", exc, logger=self.log)
+
     def collect_one(
         self,
         url,
@@ -3661,6 +3849,7 @@ class UniversalCollector:
         use_browser=True,
         scroll_times=DEFAULT_SCROLL_TIMES,
         keep_login_state=False,
+        browser_session=None,
     ):
         self.log(f"开始采集：{url}")
         try:
@@ -3670,6 +3859,7 @@ class UniversalCollector:
                         url,
                         scroll_times=scroll_times,
                         keep_login_state=keep_login_state,
+                        browser_session=browser_session,
                     )
                     if use_browser
                     else self.fetch_static(url)
@@ -3715,34 +3905,27 @@ class UniversalCollector:
         scroll_times=DEFAULT_SCROLL_TIMES,
         keep_login_state=False,
         headless=True,
+        browser_session=None,
     ):
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            if keep_login_state:
-                os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
-                context = p.chromium.launch_persistent_context(
-                    BROWSER_PROFILE_DIR,
-                    headless=headless,
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-                close_target = context
-            else:
-                browser = p.chromium.launch(headless=headless)
-                page = browser.new_page(user_agent=DEFAULT_USER_AGENT)
-                close_target = browser
-            self.prepare_dynamic_page(page, url, scroll_times)
-            html = page.content()
-            close_target.close()
-        return html
+        if browser_session:
+            return self.fetch_with_browser_session(browser_session, url, scroll_times)
+        session = self.open_browser_session(keep_login_state=keep_login_state, headless=headless)
+        try:
+            return self.fetch_with_browser_session(session, url, scroll_times)
+        finally:
+            self.close_browser_session(session)
 
     def prepare_dynamic_page(self, page, url, scroll_times=DEFAULT_SCROLL_TIMES):
         page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception:
-            pass
+        except Exception as exc:
+            record_recoverable_error(
+                "页面网络空闲等待超时，已继续采集",
+                exc,
+                logger=self.log,
+                details={"url": url},
+            )
         for _ in range(max(0, int(scroll_times))):
             page.mouse.wheel(0, 1600)
             page.wait_for_timeout(600)
@@ -3789,7 +3972,7 @@ class UniversalCollector:
                 pass
             raise
 
-    def expand_pages(self, url, template, use_browser, page_limit, keep_login_state=False):
+    def expand_pages(self, url, template, use_browser, page_limit, keep_login_state=False, browser_session=None):
         page_limit = max(1, min(int(page_limit or 1), 50))
         if page_limit <= 1:
             return [url]
@@ -3799,6 +3982,7 @@ class UniversalCollector:
                 template,
                 page_limit,
                 keep_login_state=keep_login_state,
+                browser_session=browser_session,
             )
             if len(clicked_urls) > 1:
                 return clicked_urls
@@ -3807,15 +3991,17 @@ class UniversalCollector:
             use_browser=use_browser,
             page_limit=page_limit,
             keep_login_state=keep_login_state,
+            browser_session=browser_session,
         )
 
-    def fetch_page_html_for_expansion(self, url, use_browser=True, keep_login_state=False):
+    def fetch_page_html_for_expansion(self, url, use_browser=True, keep_login_state=False, browser_session=None):
         if use_browser:
             try:
                 return self.fetch_with_playwright(
                     url,
                     scroll_times=0,
                     keep_login_state=keep_login_state,
+                    browser_session=browser_session,
                 )
             except Exception as exc:
                 self.log(f"自动翻页浏览器读取失败，改用普通网页读取：{exc}")
@@ -3862,7 +4048,14 @@ class UniversalCollector:
         candidates.sort(key=lambda item: (-int(item.get("score", 0)), item.get("url", "")))
         return candidates
 
-    def expand_pages_by_links(self, url, use_browser=True, page_limit=DEFAULT_PAGE_LIMIT, keep_login_state=False):
+    def expand_pages_by_links(
+        self,
+        url,
+        use_browser=True,
+        page_limit=DEFAULT_PAGE_LIMIT,
+        keep_login_state=False,
+        browser_session=None,
+    ):
         start_url = normalize_url(url)
         if not start_url:
             return []
@@ -3882,6 +4075,7 @@ class UniversalCollector:
                     current_url,
                     use_browser=use_browser,
                     keep_login_state=keep_login_state,
+                    browser_session=browser_session,
                 )
             except Exception as exc:
                 self.log(f"自动翻页读取失败：{current_url} | {exc}")
@@ -3917,12 +4111,21 @@ class UniversalCollector:
         page_limit = max(1, min(int(page_limit or 1), 50))
         scroll_times = max(0, min(int(scroll_times or 0), 20))
         if template.next_page_selector:
-            urls = self.expand_pages_by_click(
-                url,
-                template,
-                page_limit,
-                keep_login_state=keep_login_state,
-            )
+            browser_session = None
+            try:
+                browser_session = self.open_browser_session(
+                    keep_login_state=keep_login_state,
+                    headless=True,
+                )
+                urls = self.expand_pages_by_click(
+                    url,
+                    template,
+                    page_limit,
+                    keep_login_state=keep_login_state,
+                    browser_session=browser_session,
+                )
+            finally:
+                self.close_browser_session(browser_session)
             mode = "点击下一页"
         else:
             urls = [normalize_url(url)]
@@ -3949,39 +4152,57 @@ class UniversalCollector:
             "rows": rows,
         }
 
-    def expand_pages_by_click(self, url, template, page_limit, keep_login_state=False):
-        from playwright.sync_api import sync_playwright
-
+    def expand_pages_by_click(self, url, template, page_limit, keep_login_state=False, browser_session=None):
         urls = []
-        with sync_playwright() as p:
-            if keep_login_state:
-                os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
-                context = p.chromium.launch_persistent_context(
-                    BROWSER_PROFILE_DIR,
-                    headless=True,
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-                close_target = context
-            else:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page(user_agent=DEFAULT_USER_AGENT)
-                close_target = browser
+        owns_session = browser_session is None
+        session = browser_session or self.open_browser_session(
+            keep_login_state=keep_login_state,
+            headless=True,
+        )
+        page = None
+        try:
+            context = session.get("context")
+            if context is None:
+                raise RuntimeError("浏览器会话不存在")
+            page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
             for _ in range(page_limit):
                 current = page.url
                 if current not in urls:
                     urls.append(current)
                 locator = page.locator(template.next_page_selector).first
-                if not locator.count():
+                try:
+                    locator_count = locator.count()
+                except Exception as exc:
+                    record_recoverable_error(
+                        "检查分页按钮失败，已停止继续翻页",
+                        exc,
+                        logger=self.log,
+                        details={"url": page.url, "selector": template.next_page_selector},
+                    )
+                    break
+                if not locator_count:
                     break
                 try:
                     locator.click(timeout=5000)
                     page.wait_for_load_state("domcontentloaded", timeout=8000)
                     page.wait_for_timeout(800)
-                except Exception:
+                except Exception as exc:
+                    record_recoverable_error(
+                        "点击分页失败，已停止继续翻页",
+                        exc,
+                        logger=self.log,
+                        details={"url": page.url, "selector": template.next_page_selector},
+                    )
                     break
-            close_target.close()
+        finally:
+            if page:
+                try:
+                    page.close()
+                except Exception as exc:
+                    record_recoverable_error("关闭分页预览页面失败，已继续退出", exc, logger=self.log)
+            if owns_session:
+                self.close_browser_session(session)
         return urls
 
 

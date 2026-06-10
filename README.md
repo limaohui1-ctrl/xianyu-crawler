@@ -18,8 +18,9 @@
 ## 验证
 
 ```powershell
-$files = @('main.py','universal_core.py','core_export.py','core_database.py','core_ai_storage.py','universal_ui.py','universal_self_test.py','universal_self_test_runtime.py','ui_ai_settings.py','ui_history.py','ui_exports.py','ui_queue.py','ui_ai_history.py','ui_export_utils.py') + (Get-ChildItem -LiteralPath 'legacy_xianyu' -Filter '*.py' | ForEach-Object { $_.FullName })
+$files = @('main.py','universal_core.py','core_urls.py','core_export.py','core_database.py','core_ai_storage.py','universal_ui.py','ui_workers.py','universal_self_test.py','universal_self_test_runtime.py','ui_ai_settings.py','ui_history.py','ui_exports.py','ui_queue.py','ui_ai_history.py','ui_export_utils.py','tools/verify_repo_hygiene.py') + (Get-ChildItem -LiteralPath 'legacy_xianyu' -Filter '*.py' | ForEach-Object { $_.FullName })
 python -m py_compile @files
+python tools/verify_repo_hygiene.py
 python main.py --self-test
 python main.py --self-test --xianyu
 ```
@@ -41,4 +42,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_release.ps1
 - AI Key 本机加密、AI 调用日志和修复历史 JSONL 存储已拆到 `core_ai_storage.py`，`universal_core.py` 仍保留原函数名和运行时路径默认值。
 - 自测运行时目录隔离和旧文件清理已拆到 `universal_self_test_runtime.py`，主自测文件更聚焦断言流程。
 - 每次改动导出、AI Key、采集流程或打包脚本后，都需要跑完整自测。
-- 准备同步 GitHub 前，先确认 `.gitignore` 覆盖运行数据、采集结果和浏览器登录态。
+- 准备同步 GitHub 前，先执行 `python tools/verify_repo_hygiene.py`，确认 `.gitignore` 覆盖运行数据、采集结果、打包目录和浏览器登录态，且这些产物未被 git 跟踪。

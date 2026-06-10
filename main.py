@@ -130,9 +130,20 @@ def xianyu_self_test_env(runtime_dir):
     )
 
 
-def write_error_log(file_path):
+def write_error_log(file_path, text=None):
+    os.makedirs(os.path.dirname(os.path.abspath(file_path)) or ".", exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
-        f.write(traceback.format_exc())
+        f.write(text or traceback.format_exc())
+
+
+def append_error_log_note(file_path, title, exc):
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)) or ".", exist_ok=True)
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(f"\n\n[{title}]\n")
+            f.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
@@ -183,6 +194,7 @@ if __name__ == "__main__":
             clear_stale_startup_error(runtime_startup_log_file())
             run_universal_app()
     except Exception:
+        main_traceback = traceback.format_exc()
         try:
             if "--xianyu" in sys.argv:
                 from legacy_xianyu.app_core import SELF_TEST_ERROR_LOG_FILE, STARTUP_LOG_FILE, ensure_runtime_dirs
@@ -194,9 +206,10 @@ if __name__ == "__main__":
                 error_log_file = SELF_TEST_ERROR_LOG_FILE if "--self-test" in sys.argv else STARTUP_LOG_FILE
             else:
                 error_log_file = runtime_self_test_error_log_file() if "--self-test" in sys.argv else runtime_startup_log_file()
-        except Exception:
+        except Exception as error_log_exc:
             error_log_file = "self_test_error.log" if "--self-test" in sys.argv else "startup_error.log"
-        write_error_log(error_log_file)
+            sys.stderr.write(f"启动错误日志路径计算失败，使用当前目录兜底：{error_log_exc}\n")
+        write_error_log(error_log_file, main_traceback)
         if "--self-test" in sys.argv and "--xianyu" not in sys.argv:
             try:
                 write_universal_self_test_status(
@@ -206,6 +219,6 @@ if __name__ == "__main__":
                     error_log_file,
                     exit_code=1,
                 )
-            except Exception:
-                pass
+            except Exception as status_exc:
+                append_error_log_note(error_log_file, "self-test-status-write-failed", status_exc)
         raise

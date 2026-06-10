@@ -112,6 +112,7 @@ from universal_core import (
     schedule_next_run_text,
     save_ai_settings,
     refresh_ai_provider_models,
+    record_recoverable_error,
     test_ai_provider_connectivity,
     scene_template_presets,
     search_template_market,
@@ -3562,7 +3563,12 @@ class UniversalMainWindow(QMainWindow):
             return
         try:
             latest_settings = load_ai_settings()
-        except Exception:
+        except Exception as exc:
+            record_recoverable_error(
+                "读取 AI 配置失败，已使用当前界面配置",
+                exc,
+                logger=self.append_ai_output,
+            )
             latest_settings = self.ai_settings if isinstance(self.ai_settings, dict) else {}
         current_settings = self.collect_ai_settings_from_ui() if hasattr(self, "ai_provider_combo") else {}
         if isinstance(latest_settings, dict):
@@ -4236,7 +4242,12 @@ class UniversalMainWindow(QMainWindow):
                 custom_json = body.split(marker, 1)[1].strip()
                 custom_values = json.loads(custom_json)
                 return custom_values.get(rule.name, "")
-            except Exception:
+            except Exception as exc:
+                record_recoverable_error(
+                    "解析预采自定义字段失败，已留空该字段",
+                    exc,
+                    details={"rule": rule.name},
+                )
                 return ""
         return ""
 
