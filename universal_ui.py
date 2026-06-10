@@ -569,6 +569,8 @@ class UniversalMainWindow(QMainWindow):
         self.current_run_id = None
         self.current_run_start_count = 0
         self.current_run_progress = {}
+        self.current_run_strategy_label = ""
+        self.latest_strategy_comparison_report = {}
         self.latest_wizard_analysis_rows = []
         self.auto_apply_repair_after_ai = False
         self._loading_ai_settings = False
@@ -1148,6 +1150,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_low_quality_button = QPushButton("重抓低完整度")
         self.simple_apply_diagnosis_button = QPushButton("应用诊断建议")
         self.simple_sample_verify_button = QPushButton("抽样验证")
+        self.simple_strategy_compare_button = QPushButton("实测对比")
         self.simple_real_check_button = QPushButton("真实自检")
         self.simple_depth_combo = QComboBox()
         self.simple_depth_combo.addItem("普通", "normal")
@@ -1168,6 +1171,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_low_quality_button.clicked.connect(self.simple_retry_low_quality_items)
         self.simple_apply_diagnosis_button.clicked.connect(self.simple_apply_diagnosis_action)
         self.simple_sample_verify_button.clicked.connect(self.simple_run_sample_verification)
+        self.simple_strategy_compare_button.clicked.connect(self.simple_run_strategy_comparison)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
         input_layout.addWidget(QLabel("网址"), 0, 0)
         input_layout.addWidget(self.simple_url_input, 0, 1, 1, 4)
@@ -1223,6 +1227,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_sample_verify_label.setObjectName("simpleSummaryText")
         self.simple_sample_verify_label.setWordWrap(True)
         status_layout.addWidget(self.simple_sample_verify_label)
+
+        self.simple_strategy_compare_label = QLabel("实测对比：等待两种策略样本")
+        self.simple_strategy_compare_label.setObjectName("simpleSummaryText")
+        self.simple_strategy_compare_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_strategy_compare_label)
 
         self.simple_discovery_label = QLabel("发现记录：等待采集")
         self.simple_discovery_label.setObjectName("simpleSummaryText")
@@ -1297,6 +1306,7 @@ class UniversalMainWindow(QMainWindow):
         result_actions.addWidget(self.simple_retry_low_quality_button)
         result_actions.addWidget(self.simple_apply_diagnosis_button)
         result_actions.addWidget(self.simple_sample_verify_button)
+        result_actions.addWidget(self.simple_strategy_compare_button)
         result_actions.addStretch(1)
         result_layout.addLayout(result_actions)
 
@@ -2213,6 +2223,123 @@ class UniversalMainWindow(QMainWindow):
         if hasattr(self, "simple_progress_label"):
             score_text = "，".join(f"{name}{score}" for name, score in report.get("scores", {}).items())
             self.simple_progress_label.setText(f"{summary}。策略评分：{score_text}")
+        return bool(report.get("rows"))
+
+    def record_strategy_label(self, record):
+        label = record.get("simple_collect_depth") or record.get("crawl_strategy") or record.get("strategy") or ""
+        if label:
+            return str(label)
+        run_id = int(record.get("run_id") or 0)
+        if run_id:
+            config = self.database.run_config(run_id)
+            label = (config or {}).get("simple_collect_depth") or ""
+            if label:
+                return str(label)
+        return ""
+
+    def strategy_comparison_rows(self, records=None):
+        grouped = {}
+        for record in list(records if records is not None else getattr(self, "records", [])):
+            if not isinstance(record, dict):
+                continue
+            label = self.record_strategy_label(record)
+            if not label:
+                continue
+            self.ensure_record_completeness(record)
+            bucket = grouped.setdefault(
+                label,
+                {
+                    "strategy": label,
+                    "count": 0,
+                    "scores": [],
+                    "images": 0,
+                    "links": 0,
+                    "tables": 0,
+                    "errors": 0,
+                    "urls": set(),
+                },
+            )
+            bucket["count"] += 1
+            bucket["scores"].append(int(record.get("completeness_score") or 0))
+            bucket["images"] += len(record.get("images", []) or [])
+            bucket["links"] += len(record.get("links", []) or [])
+            bucket["tables"] += len(record.get("tables", []) or [])
+            bucket["errors"] += 1 if record.get("error") else 0
+            if record.get("url"):
+                bucket["urls"].add(record.get("url"))
+        rows = []
+        for bucket in grouped.values():
+            count = max(1, int(bucket.get("count") or 0))
+            avg_score = round(sum(bucket.get("scores") or []) / count)
+            rows.append(
+                {
+                    "strategy": bucket.get("strategy", ""),
+                    "count": bucket.get("count", 0),
+                    "avg_score": avg_score,
+                    "images": bucket.get("images", 0),
+                    "links": bucket.get("links", 0),
+                    "tables": bucket.get("tables", 0),
+                    "errors": bucket.get("errors", 0),
+                    "url_count": len(bucket.get("urls", set())),
+                    "value_score": avg_score
+                    + min(15, int(bucket.get("images", 0)))
+                    + min(15, int(bucket.get("links", 0)) // 2)
+                    + min(15, int(bucket.get("tables", 0)) * 2)
+                    - int(bucket.get("errors", 0)) * 10,
+                }
+            )
+        rows.sort(key=lambda row: (-int(row.get("value_score", 0)), row.get("strategy", "")))
+        return rows
+
+    def build_strategy_comparison_report(self, records=None):
+        rows = self.strategy_comparison_rows(records)
+        if len(rows) < 2:
+            return {
+                "summary": "实测对比：需要至少两种策略样本，例如先普通抓一次，再完整抓一次",
+                "best": "",
+                "delta": 0,
+                "rows": rows,
+            }
+        best = rows[0]
+        baseline = next((row for row in rows if row.get("strategy") == "普通"), rows[-1])
+        delta = int(best.get("avg_score") or 0) - int(baseline.get("avg_score") or 0)
+        more_links = int(best.get("links") or 0) - int(baseline.get("links") or 0)
+        more_images = int(best.get("images") or 0) - int(baseline.get("images") or 0)
+        more_tables = int(best.get("tables") or 0) - int(baseline.get("tables") or 0)
+        summary = (
+            f"实测对比：推荐 {best.get('strategy')}；完整度 {delta:+d} 分，"
+            f"链接 {more_links:+d}，图片 {more_images:+d}，表格 {more_tables:+d}"
+        )
+        return {
+            "summary": summary,
+            "best": best.get("strategy", ""),
+            "delta": delta,
+            "rows": rows,
+        }
+
+    def simple_run_strategy_comparison(self):
+        report = self.build_strategy_comparison_report()
+        self.latest_strategy_comparison_report = report
+        summary = report.get("summary", "实测对比：等待两种策略样本")
+        if hasattr(self, "simple_strategy_compare_label"):
+            self.simple_strategy_compare_label.setText(summary)
+        best = report.get("best", "")
+        if best == "完整":
+            self.apply_complete_crawl_settings()
+        elif best == "深度":
+            deep_index = self.simple_depth_combo.findData("deep") if hasattr(self, "simple_depth_combo") else -1
+            if deep_index >= 0:
+                self.simple_depth_combo.setCurrentIndex(deep_index)
+        elif best == "普通":
+            normal_index = self.simple_depth_combo.findData("normal") if hasattr(self, "simple_depth_combo") else -1
+            if normal_index >= 0:
+                self.simple_depth_combo.setCurrentIndex(normal_index)
+        if hasattr(self, "simple_progress_label"):
+            rows_text = "；".join(
+                f"{row.get('strategy')} 完整度{row.get('avg_score')} 链接{row.get('links')}"
+                for row in report.get("rows", [])[:3]
+            )
+            self.simple_progress_label.setText(f"{summary}。{rows_text}")
         return bool(report.get("rows"))
 
     def refresh_simple_crawl_diagnosis(self):
@@ -6085,6 +6212,7 @@ class UniversalMainWindow(QMainWindow):
         scrape_subpages = bool(runtime_overrides.get("scrape_subpages", self.subpage_checkbox.isChecked()))
         subpage_limit = int(runtime_overrides.get("subpage_limit", self.subpage_limit_input.value()) or 0)
         skip_unchanged = bool(runtime_overrides.get("skip_unchanged", self.skip_unchanged_checkbox.isChecked()))
+        self.current_run_strategy_label = runtime_overrides.get("simple_collect_depth", "") or self.simple_collect_depth_config().get("label", "")
         selected_subpage_urls = runtime_overrides.get(
             "selected_subpage_urls",
             self.selected_subpage_urls if self.subpage_checkbox.isChecked() else [],
@@ -6191,6 +6319,7 @@ class UniversalMainWindow(QMainWindow):
         self.worker = None
         self.worker_thread = None
         self.current_run_id = None
+        self.current_run_strategy_label = ""
         self.load_recent_records()
         alert_count = self.refresh_change_alerts(silent=True, notify=True)
         if alert_count:
@@ -6205,6 +6334,8 @@ class UniversalMainWindow(QMainWindow):
         self.fill_result_quality_table()
 
     def add_record(self, record):
+        if getattr(self, "current_run_strategy_label", "") and not record.get("simple_collect_depth"):
+            record["simple_collect_depth"] = self.current_run_strategy_label
         self.ensure_record_completeness(record)
         self.records.append(record)
         record_index = len(self.records) - 1

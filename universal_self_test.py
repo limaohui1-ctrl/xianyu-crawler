@@ -105,6 +105,7 @@ def run_universal_self_test():
         "simple_retry_low_quality_button",
         "simple_apply_diagnosis_button",
         "simple_sample_verify_button",
+        "simple_strategy_compare_button",
         "simple_retry_report_button",
         "simple_real_check_button",
         "simple_depth_combo",
@@ -119,6 +120,7 @@ def run_universal_self_test():
         "simple_retry_report_label",
         "simple_diagnosis_label",
         "simple_sample_verify_label",
+        "simple_strategy_compare_label",
         "simple_discovery_label",
         "simple_step_labels",
         "simple_recent_files_table",
@@ -314,6 +316,63 @@ def run_universal_self_test():
     first_sample_report = window.build_sample_verification_report()
     if not first_sample_report.get("recommendation") or "样本" not in first_sample_report.get("summary", ""):
         raise AssertionError(f"普通首页抽样验证未给出样本推荐：{first_sample_report}")
+    strategy_report = window.build_strategy_comparison_report(
+        [
+            {
+                "url": "https://example.com/item",
+                "title": "普通样本",
+                "body": "普通模式只抓到很短的列表摘要。",
+                "images": [],
+                "links": [],
+                "tables": [],
+                "simple_collect_depth": "普通",
+            },
+            {
+                "url": "https://example.com/item",
+                "title": "完整样本",
+                "body": "完整模式抓到了详情页正文，包含价格、库存、规格、图片、分页和子链接资料，内容明显更完整。",
+                "price": "88",
+                "published_time": "2026-06-09",
+                "author": "Example",
+                "images": [{"url": "https://example.com/a.png"}],
+                "links": [{"text": "详情", "url": "https://example.com/detail"}],
+                "tables": [[["规格", "值"]]],
+                "simple_collect_depth": "完整",
+            },
+        ]
+    )
+    if strategy_report.get("best") != "完整" or strategy_report.get("delta", 0) <= 0:
+        raise AssertionError(f"普通/完整实测对比未推荐完整模式：{strategy_report}")
+    original_strategy_records = list(window.records)
+    window.records = [
+        {
+            "simple_collect_depth": "普通",
+            "completeness_score": 20,
+            "completeness_label": "20% 偏少",
+            "completeness_missing": ["图片", "链接", "表格/规格"],
+            "images": [],
+            "links": [],
+            "tables": [],
+            "url": "https://example.com/item",
+        },
+        {
+            "simple_collect_depth": "完整",
+            "completeness_score": 95,
+            "completeness_label": "95% 完整",
+            "completeness_missing": [],
+            "images": [{"url": "x"}],
+            "links": [{"url": "y"}],
+            "tables": [[["a"]]],
+            "url": "https://example.com/item",
+        },
+    ]
+    try:
+        if not window.simple_run_strategy_comparison() or "推荐 完整" not in window.simple_strategy_compare_label.text():
+            raise AssertionError(f"普通首页实测对比未展示完整推荐：{window.simple_strategy_compare_label.text()}")
+        if window.simple_depth_combo.currentData() != "complete":
+            raise AssertionError("普通首页实测对比推荐完整后未切换完整模式")
+    finally:
+        window.records = original_strategy_records
     if "Example Domain" not in window.simple_preview_title_label.text():
         raise AssertionError("普通人结果预览未展示标题")
     if "示例正文" not in window.simple_preview_body_output.toPlainText():
