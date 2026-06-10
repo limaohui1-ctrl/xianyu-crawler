@@ -1145,6 +1145,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_schedule_button = QPushButton("定时监控")
         self.simple_retry_button = QPushButton("重试失败")
         self.simple_retry_low_quality_button = QPushButton("重抓低完整度")
+        self.simple_apply_diagnosis_button = QPushButton("应用诊断建议")
         self.simple_real_check_button = QPushButton("真实自检")
         self.simple_depth_combo = QComboBox()
         self.simple_depth_combo.addItem("普通", "normal")
@@ -1163,6 +1164,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_schedule_button.clicked.connect(self.simple_add_schedule)
         self.simple_retry_button.clicked.connect(self.simple_retry_failed_items)
         self.simple_retry_low_quality_button.clicked.connect(self.simple_retry_low_quality_items)
+        self.simple_apply_diagnosis_button.clicked.connect(self.simple_apply_diagnosis_action)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
         input_layout.addWidget(QLabel("网址"), 0, 0)
         input_layout.addWidget(self.simple_url_input, 0, 1, 1, 4)
@@ -1280,6 +1282,7 @@ class UniversalMainWindow(QMainWindow):
         result_actions.addWidget(self.simple_schedule_button)
         result_actions.addWidget(self.simple_retry_button)
         result_actions.addWidget(self.simple_retry_low_quality_button)
+        result_actions.addWidget(self.simple_apply_diagnosis_button)
         result_actions.addStretch(1)
         result_layout.addLayout(result_actions)
 
@@ -2032,6 +2035,74 @@ class UniversalMainWindow(QMainWindow):
         )[0]
         top_row = next((row for row in weak_rows if row.get("reason") == top_reason), weak_rows[0])
         return f"诊断建议：{len(weak_rows)} 条需处理；主要是{top_reason} {top_count} 条。建议：{top_row.get('advice', '')}"
+
+    def primary_simple_crawl_diagnosis(self):
+        rows = self.simple_crawl_diagnosis_rows()
+        weak_rows = [row for row in rows if int(row.get("score") or 0) < 60 or row.get("severity") != "正常"]
+        if not weak_rows:
+            return {}
+        severity_rank = {"需处理": 2, "需确认": 1, "正常": 0}
+        weak_rows.sort(
+            key=lambda row: (
+                severity_rank.get(row.get("severity", "需确认"), 1),
+                100 - int(row.get("score") or 0),
+            ),
+            reverse=True,
+        )
+        return weak_rows[0]
+
+    def apply_complete_crawl_settings(self):
+        complete_index = self.simple_depth_combo.findData("complete") if hasattr(self, "simple_depth_combo") else -1
+        if complete_index >= 0:
+            self.simple_depth_combo.setCurrentIndex(complete_index)
+        depth_config = self.simple_collect_depth_config()
+        self.use_browser_checkbox.setChecked(True)
+        self.page_limit_input.setValue(max(self.page_limit_input.value(), depth_config["page_limit"]))
+        self.scroll_times_input.setValue(max(self.scroll_times_input.value(), depth_config["scroll_times"]))
+        self.delay_input.setValue(max(self.delay_input.value(), 2))
+        return depth_config
+
+    def apply_blocked_crawl_settings(self):
+        self.use_browser_checkbox.setChecked(True)
+        self.keep_login_checkbox.setChecked(True)
+        self.delay_input.setValue(max(self.delay_input.value(), 3))
+        self.scroll_times_input.setValue(max(self.scroll_times_input.value(), 2))
+
+    def simple_apply_diagnosis_action(self):
+        diagnosis = self.primary_simple_crawl_diagnosis()
+        if not diagnosis:
+            self.simple_information("提示", "当前没有需要处理的诊断建议。")
+            return False
+        reason = diagnosis.get("reason", "")
+        if reason in {"疑似动态加载", "详情页可能未展开"}:
+            self.apply_complete_crawl_settings()
+            if self.low_quality_urls():
+                self.simple_status_label.setText("已应用诊断建议：完整模式重抓低完整度结果")
+                return self.simple_retry_low_quality_items()
+            self.simple_status_label.setText("已应用诊断建议：切换到完整模式并提高滚动/等待")
+            self.simple_progress_label.setText("下一次采集会使用真实浏览器、完整深度和更长等待")
+            return True
+        if reason == "反爬或权限限制":
+            self.apply_blocked_crawl_settings()
+            self.simple_status_label.setText("已应用诊断建议：真实浏览器、保留登录、降低速度")
+            self.simple_progress_label.setText("下一次采集会保留登录状态，并用更慢速度访问")
+            return True
+        if reason == "请求失败":
+            self.use_browser_checkbox.setChecked(True)
+            self.delay_input.setValue(max(self.delay_input.value(), 3))
+            self.simple_status_label.setText("已应用诊断建议：启用真实浏览器并降低速度")
+            self.simple_progress_label.setText("下一次采集会用更稳的访问方式重试")
+            return True
+        if reason == "字段规则可能不匹配":
+            urls = [diagnosis.get("url", "")] if diagnosis.get("url", "") else self.urls_from_input()
+            urls = [url for url in urls if url]
+            if urls and self.maybe_start_simple_ai_suggest_fields(urls):
+                self.simple_status_label.setText("已应用诊断建议：AI 正在整理字段规则")
+            else:
+                self.simple_status_label.setText("已应用诊断建议：请检查 AI 设置后再生成建议列")
+            return True
+        self.simple_status_label.setText("诊断建议：页面资料可能本身偏少，建议抽查原网页")
+        return True
 
     def refresh_simple_crawl_diagnosis(self):
         if hasattr(self, "simple_diagnosis_label"):

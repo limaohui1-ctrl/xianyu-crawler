@@ -103,6 +103,7 @@ def run_universal_self_test():
         "simple_schedule_button",
         "simple_retry_button",
         "simple_retry_low_quality_button",
+        "simple_apply_diagnosis_button",
         "simple_retry_report_button",
         "simple_real_check_button",
         "simple_depth_combo",
@@ -432,6 +433,73 @@ def run_universal_self_test():
     )
     if field_rule_diagnosis.get("reason") != "字段规则可能不匹配" or "AI 建议列" not in field_rule_diagnosis.get("advice", ""):
         raise AssertionError(f"字段规则诊断不正确：{field_rule_diagnosis}")
+    diagnosis_retry_starts = []
+    original_start_for_diagnosis_action = window.start_collecting
+    window.start_collecting = lambda skip_confirmation=False, runtime_overrides=None: diagnosis_retry_starts.append(
+        {
+            "urls": list(window.urls_from_input()),
+            "skip_confirmation": skip_confirmation,
+            "runtime_overrides": dict(runtime_overrides or {}),
+        }
+    )
+    try:
+        if not window.simple_apply_diagnosis_action():
+            raise AssertionError("普通首页应用动态加载诊断建议失败")
+    finally:
+        window.start_collecting = original_start_for_diagnosis_action
+    if not diagnosis_retry_starts or "https://example.com/weak" not in diagnosis_retry_starts[-1].get("urls", []):
+        raise AssertionError(f"应用诊断建议未发起低完整度重抓：{diagnosis_retry_starts}")
+    diagnosis_overrides = diagnosis_retry_starts[-1].get("runtime_overrides", {})
+    if diagnosis_overrides.get("simple_collect_depth") != "完整" or diagnosis_overrides.get("skip_unchanged") is not False:
+        raise AssertionError(f"应用诊断建议未使用完整重抓参数：{diagnosis_overrides}")
+    if window.simple_depth_combo.currentData() != "complete" or not window.use_browser_checkbox.isChecked() or window.scroll_times_input.value() < 3:
+        raise AssertionError("应用动态加载诊断建议未切换完整采集配置")
+    diagnosis_records_backup = list(window.records)
+    window.records = [
+        {
+            "url": "https://example.com/blocked",
+            "title": "",
+            "body": "",
+            "images": [],
+            "links": [],
+            "tables": [],
+            "error": "403 验证码拦截",
+        }
+    ]
+    window.keep_login_checkbox.setChecked(False)
+    window.use_browser_checkbox.setChecked(False)
+    window.delay_input.setValue(0)
+    window.scroll_times_input.setValue(0)
+    window.refresh_simple_result_summary()
+    if not window.simple_apply_diagnosis_action():
+        raise AssertionError("普通首页应用反爬诊断建议失败")
+    if not window.use_browser_checkbox.isChecked() or not window.keep_login_checkbox.isChecked() or window.delay_input.value() < 3:
+        raise AssertionError("应用反爬诊断建议未启用真实浏览器、保留登录和慢速访问")
+    if "真实浏览器" not in window.simple_status_label.text() or "保留登录" not in window.simple_status_label.text():
+        raise AssertionError(f"应用反爬诊断建议未更新状态：{window.simple_status_label.text()}")
+    window.records = [
+        {
+            "url": "https://example.com/custom",
+            "title": "字段规则页",
+            "body": "页面正文已经抓到很多文字内容，说明网页可以访问，但用户需要的价格、作者、时间、图片等结构化字段没有被当前规则提取出来。",
+            "images": [],
+            "links": [],
+            "tables": [],
+        }
+    ]
+    window.simple_url_input.setPlainText("https://example.com/custom")
+    captured_diagnosis_suggest = []
+    original_maybe_suggest_for_diagnosis = window.maybe_start_simple_ai_suggest_fields
+    window.maybe_start_simple_ai_suggest_fields = lambda urls: captured_diagnosis_suggest.append(list(urls)) or True
+    try:
+        if not window.simple_apply_diagnosis_action():
+            raise AssertionError("普通首页应用字段规则诊断建议失败")
+    finally:
+        window.maybe_start_simple_ai_suggest_fields = original_maybe_suggest_for_diagnosis
+    if captured_diagnosis_suggest != [["https://example.com/custom"]]:
+        raise AssertionError(f"应用字段规则诊断建议未触发 AI 建议列：{captured_diagnosis_suggest}")
+    window.records = diagnosis_records_backup
+    window.refresh_simple_result_summary()
     low_quality_queue = window.low_quality_retry_queue()
     weak_queue_row = next((row for row in low_quality_queue if row.get("url") == "https://example.com/weak"), {})
     if not weak_queue_row or "低完整度页" not in weak_queue_row.get("title", "") or not weak_queue_row.get("missing"):
