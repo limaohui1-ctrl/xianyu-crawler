@@ -104,6 +104,7 @@ def run_universal_self_test():
         "simple_retry_button",
         "simple_retry_low_quality_button",
         "simple_apply_diagnosis_button",
+        "simple_sample_verify_button",
         "simple_retry_report_button",
         "simple_real_check_button",
         "simple_depth_combo",
@@ -117,6 +118,7 @@ def run_universal_self_test():
         "simple_result_summary_label",
         "simple_retry_report_label",
         "simple_diagnosis_label",
+        "simple_sample_verify_label",
         "simple_step_labels",
         "simple_recent_files_table",
         "simple_recent_records_table",
@@ -198,6 +200,8 @@ def run_universal_self_test():
         raise AssertionError("普通人面板缺少真实抓取自检入口")
     if window.simple_depth_combo.currentData() != "deep":
         raise AssertionError("普通人一键采集应默认使用深度采集")
+    if "等待样本" not in window.build_sample_verification_report().get("summary", ""):
+        raise AssertionError("普通人抽样验证空状态未提示等待样本")
     if not window.simple_ai_provider_combo.count() or not window.simple_ai_model_combo.count():
         raise AssertionError("普通人面板未提供 API 厂商和模型选择")
     window.on_real_scrape_check_result(
@@ -306,6 +310,9 @@ def run_universal_self_test():
         raise AssertionError("普通人面板未显示结果摘要")
     if "诊断建议" not in window.simple_diagnosis_label.text():
         raise AssertionError("普通人面板未显示采集诊断建议")
+    first_sample_report = window.build_sample_verification_report()
+    if not first_sample_report.get("recommendation") or "样本" not in first_sample_report.get("summary", ""):
+        raise AssertionError(f"普通首页抽样验证未给出样本推荐：{first_sample_report}")
     if "Example Domain" not in window.simple_preview_title_label.text():
         raise AssertionError("普通人结果预览未展示标题")
     if "示例正文" not in window.simple_preview_body_output.toPlainText():
@@ -396,6 +403,13 @@ def run_universal_self_test():
         raise AssertionError(f"低完整度动态加载诊断不正确：{weak_diagnosis}")
     if "诊断建议" not in window.simple_diagnosis_label.text() or "动态加载" not in window.simple_diagnosis_label.text():
         raise AssertionError(f"普通首页诊断摘要未指出主要原因：{window.simple_diagnosis_label.text()}")
+    dynamic_sample_report = window.build_sample_verification_report()
+    if dynamic_sample_report.get("recommendation") != "完整" or "动态加载" not in dynamic_sample_report.get("summary", ""):
+        raise AssertionError(f"动态样本抽样验证未推荐完整模式：{dynamic_sample_report}")
+    if not window.simple_run_sample_verification() or "推荐 完整" not in window.simple_sample_verify_label.text():
+        raise AssertionError(f"普通首页抽样验证未展示完整模式推荐：{window.simple_sample_verify_label.text()}")
+    if window.simple_depth_combo.currentData() != "complete" or window.scroll_times_input.value() < 3:
+        raise AssertionError("抽样验证推荐完整模式后未调整采集深度")
     blocked_diagnosis = window.crawl_diagnosis_for_record(
         {
             "url": "https://example.com/blocked",
@@ -477,6 +491,9 @@ def run_universal_self_test():
         raise AssertionError("应用反爬诊断建议未启用真实浏览器、保留登录和慢速访问")
     if "真实浏览器" not in window.simple_status_label.text() or "保留登录" not in window.simple_status_label.text():
         raise AssertionError(f"应用反爬诊断建议未更新状态：{window.simple_status_label.text()}")
+    blocked_sample_report = window.build_sample_verification_report()
+    if blocked_sample_report.get("recommendation") != "登录浏览器":
+        raise AssertionError(f"反爬样本抽样验证未推荐登录浏览器：{blocked_sample_report}")
     window.records = [
         {
             "url": "https://example.com/custom",

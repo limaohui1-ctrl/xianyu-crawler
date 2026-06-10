@@ -1146,6 +1146,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_button = QPushButton("重试失败")
         self.simple_retry_low_quality_button = QPushButton("重抓低完整度")
         self.simple_apply_diagnosis_button = QPushButton("应用诊断建议")
+        self.simple_sample_verify_button = QPushButton("抽样验证")
         self.simple_real_check_button = QPushButton("真实自检")
         self.simple_depth_combo = QComboBox()
         self.simple_depth_combo.addItem("普通", "normal")
@@ -1165,6 +1166,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_button.clicked.connect(self.simple_retry_failed_items)
         self.simple_retry_low_quality_button.clicked.connect(self.simple_retry_low_quality_items)
         self.simple_apply_diagnosis_button.clicked.connect(self.simple_apply_diagnosis_action)
+        self.simple_sample_verify_button.clicked.connect(self.simple_run_sample_verification)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
         input_layout.addWidget(QLabel("网址"), 0, 0)
         input_layout.addWidget(self.simple_url_input, 0, 1, 1, 4)
@@ -1215,6 +1217,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_diagnosis_label.setObjectName("simpleSummaryText")
         self.simple_diagnosis_label.setWordWrap(True)
         status_layout.addWidget(self.simple_diagnosis_label)
+
+        self.simple_sample_verify_label = QLabel("抽样验证：等待样本")
+        self.simple_sample_verify_label.setObjectName("simpleSummaryText")
+        self.simple_sample_verify_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_sample_verify_label)
         layout.addWidget(status_box)
 
         self.simple_ai_box = QGroupBox("AI 设置")
@@ -1283,6 +1290,7 @@ class UniversalMainWindow(QMainWindow):
         result_actions.addWidget(self.simple_retry_button)
         result_actions.addWidget(self.simple_retry_low_quality_button)
         result_actions.addWidget(self.simple_apply_diagnosis_button)
+        result_actions.addWidget(self.simple_sample_verify_button)
         result_actions.addStretch(1)
         result_layout.addLayout(result_actions)
 
@@ -2103,6 +2111,103 @@ class UniversalMainWindow(QMainWindow):
             return True
         self.simple_status_label.setText("诊断建议：页面资料可能本身偏少，建议抽查原网页")
         return True
+
+    def sample_verification_strategy_scores(self, rows):
+        scores = {
+            "普通": 55,
+            "深度": 70,
+            "完整": 75,
+            "登录浏览器": 65,
+            "AI字段修复": 60,
+        }
+        for row in rows or []:
+            reason = row.get("reason", "")
+            score = int(row.get("score") or 0)
+            if reason == "资料较完整":
+                scores["普通"] += 8
+                scores["深度"] += 5
+            elif reason == "疑似动态加载":
+                scores["完整"] += 20
+                scores["登录浏览器"] += 12
+                scores["普通"] -= 15
+            elif reason == "详情页可能未展开":
+                scores["深度"] += 12
+                scores["完整"] += 18
+                scores["普通"] -= 10
+            elif reason == "反爬或权限限制":
+                scores["登录浏览器"] += 25
+                scores["普通"] -= 20
+                scores["深度"] -= 8
+            elif reason == "字段规则可能不匹配":
+                scores["AI字段修复"] += 22
+                scores["完整"] += 4
+            elif reason == "请求失败":
+                scores["登录浏览器"] += 16
+                scores["普通"] -= 12
+            elif score < 60:
+                scores["完整"] += 8
+        return {name: max(0, min(100, value)) for name, value in scores.items()}
+
+    def build_sample_verification_report(self, records=None):
+        rows = self.simple_crawl_diagnosis_rows(records)
+        if not rows:
+            urls = self.urls_from_input()[:5]
+            if not urls:
+                return {
+                    "summary": "抽样验证：请先输入或采集 3-5 个网址",
+                    "recommendation": "",
+                    "scores": {},
+                    "rows": [],
+                }
+            rows = [
+                {
+                    "url": url,
+                    "title": "(待采样)",
+                    "score": 0,
+                    "missing": "",
+                    "reason": "等待样本",
+                    "advice": "先用深度模式采集样本，再运行抽样验证。",
+                    "severity": "需确认",
+                }
+                for url in urls
+            ]
+        sample_rows = rows[:5]
+        scores = self.sample_verification_strategy_scores(sample_rows)
+        recommendation = max(scores.items(), key=lambda item: item[1])[0] if scores else ""
+        reason_counts = {}
+        for row in sample_rows:
+            reason = row.get("reason", "页面资料偏少")
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        reason_text = "、".join(f"{reason} {count}" for reason, count in sorted(reason_counts.items(), key=lambda item: item[1], reverse=True)[:3])
+        summary = f"抽样验证：样本 {len(sample_rows)} 条，推荐 {recommendation}；主要原因：{reason_text}"
+        return {
+            "summary": summary,
+            "recommendation": recommendation,
+            "scores": scores,
+            "rows": sample_rows,
+        }
+
+    def simple_run_sample_verification(self):
+        report = self.build_sample_verification_report()
+        self.latest_sample_verification_report = report
+        summary = report.get("summary", "抽样验证：等待样本")
+        if hasattr(self, "simple_sample_verify_label"):
+            self.simple_sample_verify_label.setText(summary)
+        recommendation = report.get("recommendation", "")
+        if recommendation == "完整":
+            self.apply_complete_crawl_settings()
+        elif recommendation == "登录浏览器":
+            self.apply_blocked_crawl_settings()
+        elif recommendation == "深度":
+            deep_index = self.simple_depth_combo.findData("deep") if hasattr(self, "simple_depth_combo") else -1
+            if deep_index >= 0:
+                self.simple_depth_combo.setCurrentIndex(deep_index)
+        elif recommendation == "AI字段修复":
+            self.simple_status_label.setText("抽样验证建议：优先使用 AI 建议列修复字段")
+        if hasattr(self, "simple_progress_label"):
+            score_text = "，".join(f"{name}{score}" for name, score in report.get("scores", {}).items())
+            self.simple_progress_label.setText(f"{summary}。策略评分：{score_text}")
+        return bool(report.get("rows"))
 
     def refresh_simple_crawl_diagnosis(self):
         if hasattr(self, "simple_diagnosis_label"):
