@@ -891,6 +891,55 @@ class UniversalMainWindow(QMainWindow):
             }
         return baseline
 
+    def retry_baseline_snapshot_for_urls(self, urls, records=None, reason="重抓"):
+        selected_urls = {normalize_url(url) for url in urls or [] if normalize_url(url)}
+        if not selected_urls:
+            return {}
+        source_records = list(records if records is not None else getattr(self, "records", []))
+        baseline = {}
+        for record in source_records:
+            if not isinstance(record, dict):
+                continue
+            url = normalize_url(record.get("url", ""))
+            if not url or url not in selected_urls:
+                continue
+            self.ensure_record_completeness(record)
+            baseline[url] = {
+                "url": url,
+                "title": record.get("title") or "(无标题)",
+                "score": int(record.get("completeness_score") or 0),
+                "label": record.get("completeness_label", ""),
+                "missing": list(record.get("completeness_missing", []) or []),
+                "body_length": len(compact_text(record.get("body", ""), 100000)),
+                "images": len(record.get("images", []) or []),
+                "links": len(record.get("links", []) or []),
+                "tables": len(record.get("tables", []) or []),
+                "reason": reason,
+            }
+        for url in selected_urls:
+            baseline.setdefault(
+                url,
+                {
+                    "url": url,
+                    "title": "(无标题)",
+                    "score": 0,
+                    "label": "0% 偏少",
+                    "missing": [],
+                    "body_length": 0,
+                    "images": 0,
+                    "links": 0,
+                    "tables": 0,
+                    "reason": reason,
+                },
+            )
+        return baseline
+
+    def start_retry_comparison_tracking(self, urls, reason="重抓"):
+        self.low_quality_retry_baseline = self.retry_baseline_snapshot_for_urls(urls, reason=reason)
+        self.low_quality_retry_active = True
+        self.low_quality_retry_report_rows = []
+        self.refresh_low_quality_retry_report_summary()
+
     def confirm_low_quality_retry_queue(self, queue_rows):
         self.last_low_quality_retry_queue = [dict(row) for row in queue_rows or []]
         if not queue_rows:
@@ -956,10 +1005,7 @@ class UniversalMainWindow(QMainWindow):
             self.simple_status_label.setText("当前没有低完整度结果需要重抓")
             self.simple_information("提示", "当前没有低完整度结果需要重抓。")
             return False
-        self.low_quality_retry_baseline = self.low_quality_retry_baseline_for_urls(urls)
-        self.low_quality_retry_active = True
-        self.low_quality_retry_report_rows = []
-        self.refresh_low_quality_retry_report_summary()
+        self.start_retry_comparison_tracking(urls, reason="低完整度重抓")
         complete_index = self.simple_depth_combo.findData("complete") if hasattr(self, "simple_depth_combo") else -1
         if complete_index >= 0:
             self.simple_depth_combo.setCurrentIndex(complete_index)
@@ -1001,6 +1047,10 @@ class UniversalMainWindow(QMainWindow):
         total_delta = sum(int(row.get("delta") or 0) for row in rows)
         average_delta = int(total_delta / len(rows)) if rows else 0
         improved = sum(1 for row in rows if int(row.get("delta") or 0) > 0)
+        image_delta = sum(int(row.get("image_delta") or 0) for row in rows)
+        link_delta = sum(int(row.get("link_delta") or 0) for row in rows)
+        table_delta = sum(int(row.get("table_delta") or 0) for row in rows)
+        body_delta = sum(int(row.get("body_delta") or 0) for row in rows)
         captured_values = []
         still_missing_values = []
         for row in rows:
@@ -1012,6 +1062,7 @@ class UniversalMainWindow(QMainWindow):
         still_missing_text = "、".join(still_missing_unique) if still_missing_unique else "无"
         return (
             f"重抓效果：已回收 {len(rows)} 条，提升 {improved} 条，平均 {average_delta:+d} 分；"
+            f"多抓正文 {body_delta:+d} 字，图片 {image_delta:+d}，链接 {link_delta:+d}，表格 {table_delta:+d}；"
             f"补到 {captured_text}；仍缺 {still_missing_text}"
         )
 
@@ -1020,16 +1071,34 @@ class UniversalMainWindow(QMainWindow):
             self.simple_retry_report_label.setText(self.retry_report_summary_text())
 
     def retry_report_table_data(self):
-        columns = ["网址", "标题", "重抓前完整度", "重抓后完整度", "提升分数", "补到资料", "仍缺资料"]
+        columns = [
+            "网址",
+            "标题",
+            "重抓原因",
+            "重抓前完整度",
+            "重抓后完整度",
+            "提升分数",
+            "多抓正文字数",
+            "新增图片",
+            "新增链接",
+            "新增表格",
+            "补到资料",
+            "仍缺资料",
+        ]
         rows = []
         for row in getattr(self, "low_quality_retry_report_rows", []) or []:
             rows.append(
                 [
                     row.get("url", ""),
                     row.get("title", ""),
+                    row.get("reason", ""),
                     row.get("before", 0),
                     row.get("after", 0),
                     row.get("delta", 0),
+                    row.get("body_delta", 0),
+                    row.get("image_delta", 0),
+                    row.get("link_delta", 0),
+                    row.get("table_delta", 0),
                     row.get("captured", ""),
                     row.get("still_missing", ""),
                 ]
@@ -1069,12 +1138,21 @@ class UniversalMainWindow(QMainWindow):
             baseline.get("missing", []),
             record.get("completeness_missing", []),
         )
+        body_delta = len(compact_text(record.get("body", ""), 100000)) - int(baseline.get("body_length") or 0)
+        image_delta = len(record.get("images", []) or []) - int(baseline.get("images") or 0)
+        link_delta = len(record.get("links", []) or []) - int(baseline.get("links") or 0)
+        table_delta = len(record.get("tables", []) or []) - int(baseline.get("tables") or 0)
         row = {
             "url": url,
             "title": record.get("title") or baseline.get("title") or "(无标题)",
+            "reason": baseline.get("reason", "重抓"),
             "before": before_score,
             "after": after_score,
             "delta": after_score - before_score,
+            "body_delta": body_delta,
+            "image_delta": image_delta,
+            "link_delta": link_delta,
+            "table_delta": table_delta,
             "captured": "、".join(captured) if captured else "暂无新增",
             "still_missing": "、".join(still_missing) if still_missing else "资料较完整",
             "captured_fields": captured,
@@ -2234,6 +2312,7 @@ class UniversalMainWindow(QMainWindow):
             return False
         depth_config = self.apply_complete_crawl_settings()
         self.simple_select_default_template()
+        self.start_retry_comparison_tracking(urls, reason=status_text)
         self.simple_merge_subpage_results = True
         self.simple_subpage_parent_map = {}
         self.simple_url_input.setPlainText("\n".join(urls))
@@ -6718,6 +6797,7 @@ class UniversalMainWindow(QMainWindow):
                     merged_to_parent = self.simple_merge_subpage_into_parent(parent_record, record)
                     if merged_to_parent:
                         self.ensure_record_completeness(parent_record, force=True)
+                        self.update_low_quality_retry_report(parent_record)
                         for row in range(self.simple_result_table.rowCount()):
                             marker = self.simple_result_table.item(row, 0)
                             if marker and marker.data(Qt.ItemDataRole.UserRole + 1) == parent_index:

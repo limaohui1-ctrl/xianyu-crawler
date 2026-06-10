@@ -651,7 +651,41 @@ def run_universal_self_test():
     repair_overrides = repair_starts[-1].get("runtime_overrides", {})
     if repair_overrides.get("simple_collect_depth") != "完整" or repair_overrides.get("skip_unchanged") is not False:
         raise AssertionError(f"分页修复方案未使用完整重抓参数：{repair_overrides}")
+    repair_baseline = getattr(window, "low_quality_retry_baseline", {}).get("https://example.com/list", {})
+    if not repair_baseline or repair_baseline.get("reason", "").find("分页") < 0:
+        raise AssertionError(f"分页修复方案未保存重抓前对照基线：{repair_baseline}")
+    window.add_record(
+        {
+            "collected_at": "2026-06-09 10:42:30",
+            "url": "https://example.com/list",
+            "domain": "example.com",
+            "template_name": "通用自动识别",
+            "title": "分页页",
+            "price": "66",
+            "published_time": "2026-06-09",
+            "author": "Example",
+            "body": "这是完整模式翻页后补到的正文内容，包含第二页、第三页和更多列表资料，明显比原来的列表摘要更完整。",
+            "images": [{"url": "https://example.com/list.jpg"}],
+            "links": [
+                {"text": "详情1", "url": "https://example.com/detail/1"},
+                {"text": "详情2", "url": "https://example.com/detail/2"},
+            ],
+            "tables": [[["页码", "内容"]]],
+        }
+    )
+    repair_report_row = next(
+        (row for row in getattr(window, "low_quality_retry_report_rows", []) if row.get("url") == "https://example.com/list"),
+        {},
+    )
+    if not repair_report_row or repair_report_row.get("link_delta", 0) <= 0 or repair_report_row.get("body_delta", 0) <= 0:
+        raise AssertionError(f"分页修复方案未生成真实采集对照报告：{repair_report_row}")
+    repair_report_text = window.simple_retry_report_label.text()
+    if "多抓正文" not in repair_report_text or "链接" not in repair_report_text:
+        raise AssertionError(f"真实采集对照摘要未展示新增资料数量：{repair_report_text}")
     window.records = repair_records_backup
+    window.low_quality_retry_baseline = {}
+    window.low_quality_retry_active = False
+    window.low_quality_retry_report_rows = []
     window.refresh_simple_result_summary()
     diagnosis_retry_starts = []
     original_start_for_diagnosis_action = window.start_collecting
@@ -778,7 +812,7 @@ def run_universal_self_test():
     if "重抓效果" not in retry_report_text or "+" not in retry_report_text or "补到" not in retry_report_text:
         raise AssertionError(f"低完整度重抓效果摘要不完整：{retry_report_text}")
     retry_columns, retry_rows = window.retry_report_table_data()
-    for expected_header in ("网址", "重抓前完整度", "重抓后完整度", "提升分数", "补到资料", "仍缺资料"):
+    for expected_header in ("网址", "重抓原因", "重抓前完整度", "重抓后完整度", "提升分数", "多抓正文字数", "新增图片", "新增链接", "新增表格", "补到资料", "仍缺资料"):
         if expected_header not in retry_columns:
             raise AssertionError(f"低完整度重抓报告导出列缺失：{retry_columns}")
     if not retry_rows or "https://example.com/weak" not in "\t".join(str(value) for value in retry_rows[0]):
