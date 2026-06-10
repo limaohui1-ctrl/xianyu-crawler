@@ -832,24 +832,44 @@ class UniversalMainWindow(QMainWindow):
 
     def build_simple_collect_tab(self):
         page = QWidget()
+        page.setObjectName("simpleWorkbench")
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        self.apply_simple_workbench_style(page)
 
-        top_row = QHBoxLayout()
+        header_row = QHBoxLayout()
+        title_stack = QVBoxLayout()
+        title_label = QLabel("采集工作台")
+        title_label.setObjectName("simplePageTitle")
+        subtitle_label = QLabel("输入网址和目标资料，采集完成后在右侧检查详情并保存结果")
+        subtitle_label.setObjectName("simplePageSubtitle")
+        title_stack.addWidget(title_label)
+        title_stack.addWidget(subtitle_label)
         self.simple_status_label = QLabel("准备就绪")
+        self.simple_status_label.setObjectName("simpleStatusPill")
         self.simple_status_label.setWordWrap(True)
-        top_row.addWidget(self.simple_status_label, 1)
-        layout.addLayout(top_row)
+        header_row.addLayout(title_stack, 1)
+        header_row.addWidget(self.simple_status_label)
+        layout.addLayout(header_row)
 
-        input_box = QGroupBox("一键采集")
+        self.simple_input_box = QGroupBox("采集任务")
+        input_box = self.simple_input_box
+        input_box.setObjectName("primaryPanel")
         input_layout = QGridLayout(input_box)
+        input_layout.setHorizontalSpacing(10)
+        input_layout.setVerticalSpacing(8)
         self.simple_url_input = QTextEdit()
-        self.simple_url_input.setMaximumHeight(96)
+        self.simple_url_input.setMinimumHeight(82)
+        self.simple_url_input.setMaximumHeight(110)
         self.simple_url_input.setPlaceholderText("粘贴网址，一行一个")
         self.simple_url_input.setPlainText("https://example.com/")
         self.simple_goal_input = QTextEdit()
-        self.simple_goal_input.setMaximumHeight(90)
+        self.simple_goal_input.setMinimumHeight(72)
+        self.simple_goal_input.setMaximumHeight(96)
         self.simple_goal_input.setPlaceholderText("告诉软件要抓什么，例如：抓产品名、价格、库存和详情页参数")
         self.simple_start_button = QPushButton("确认并采集")
+        self.simple_start_button.setObjectName("primaryButton")
         self.simple_stop_button = QPushButton("停止")
         self.simple_stop_button.setEnabled(False)
         self.simple_ai_suggest_button = QPushButton("AI 建议列")
@@ -877,24 +897,49 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_button.clicked.connect(self.simple_retry_failed_items)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
         input_layout.addWidget(QLabel("网址"), 0, 0)
-        input_layout.addWidget(self.simple_url_input, 0, 1, 1, 3)
+        input_layout.addWidget(self.simple_url_input, 0, 1, 1, 4)
         input_layout.addWidget(QLabel("要抓什么"), 1, 0)
-        input_layout.addWidget(self.simple_goal_input, 1, 1, 1, 3)
+        input_layout.addWidget(self.simple_goal_input, 1, 1, 1, 4)
         input_layout.addWidget(QLabel("采集深度"), 2, 0)
         input_layout.addWidget(self.simple_depth_combo, 2, 1)
-        input_layout.addWidget(self.simple_ai_suggest_button, 2, 2)
-        input_layout.addWidget(self.simple_real_check_button, 2, 3)
-        input_layout.addWidget(self.simple_start_button, 3, 0)
-        input_layout.addWidget(self.simple_stop_button, 3, 1)
-        input_layout.addWidget(self.simple_export_button, 3, 2)
-        input_layout.addWidget(self.simple_copy_button, 3, 3)
-        input_layout.addWidget(self.simple_contact_button, 4, 0)
-        input_layout.addWidget(self.simple_image_button, 4, 1)
-        input_layout.addWidget(self.simple_schedule_button, 4, 2)
-        input_layout.addWidget(self.simple_retry_button, 4, 3)
+        input_layout.addWidget(self.simple_start_button, 2, 2)
+        input_layout.addWidget(self.simple_stop_button, 2, 3)
+        input_layout.addWidget(self.simple_export_button, 2, 4)
+        quick_actions = QHBoxLayout()
+        quick_actions.addWidget(self.simple_copy_button)
+        quick_actions.addWidget(self.simple_image_button)
+        quick_actions.addStretch(1)
+        input_layout.addLayout(quick_actions, 3, 1, 1, 4)
         layout.addWidget(input_box)
 
-        ai_box = QGroupBox("AI 设置")
+        status_box = QGroupBox("采集状态")
+        status_layout = QVBoxLayout(status_box)
+        self.simple_step_labels = []
+        step_row = QHBoxLayout()
+        for text in ("1 输入", "2 后台采集", "3 导出"):
+            label = QLabel(text)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setMinimumHeight(30)
+            self.simple_step_labels.append(label)
+            step_row.addWidget(label)
+        status_layout.addLayout(step_row)
+        self.set_simple_flow_step("输入")
+
+        self.simple_progress_label = QLabel("流程：输入网址 -> 开始采集 -> 导出结果")
+        self.simple_progress_label.setObjectName("simpleProgressText")
+        self.simple_progress_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_progress_label)
+
+        self.simple_result_summary_label = QLabel("结果：暂无")
+        self.simple_result_summary_label.setObjectName("simpleSummaryText")
+        self.simple_result_summary_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_result_summary_label)
+        layout.addWidget(status_box)
+
+        self.simple_ai_box = QGroupBox("AI 设置")
+        ai_box = self.simple_ai_box
+        ai_box.setCheckable(True)
+        ai_box.setChecked(False)
         ai_layout = QGridLayout(ai_box)
         self.simple_ai_provider_combo = QComboBox()
         for provider, preset in AI_PROVIDER_PRESETS.items():
@@ -916,29 +961,17 @@ class UniversalMainWindow(QMainWindow):
         ai_layout.addWidget(self.simple_ai_key_input, 1, 1, 1, 2)
         ai_layout.addWidget(self.simple_ai_save_button, 1, 3)
         ai_layout.addWidget(self.simple_ai_test_button, 1, 4)
-        layout.addWidget(ai_box)
+        ai_tools_row = QHBoxLayout()
+        ai_tools_row.addWidget(self.simple_ai_suggest_button)
+        ai_tools_row.addWidget(self.simple_real_check_button)
+        ai_tools_row.addStretch(1)
+        ai_layout.addLayout(ai_tools_row, 2, 1, 1, 4)
+        self.bind_collapsible_groupbox(ai_box, checked=False)
         self.load_simple_ai_settings_to_ui()
 
-        self.simple_step_labels = []
-        step_row = QHBoxLayout()
-        for text in ("1 输入", "2 后台采集", "3 导出"):
-            label = QLabel(text)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setMinimumHeight(30)
-            self.simple_step_labels.append(label)
-            step_row.addWidget(label)
-        layout.addLayout(step_row)
-        self.set_simple_flow_step("输入")
-
-        self.simple_progress_label = QLabel("流程：输入网址 -> 开始采集 -> 导出结果")
-        self.simple_progress_label.setWordWrap(True)
-        layout.addWidget(self.simple_progress_label)
-
-        self.simple_result_summary_label = QLabel("结果：暂无")
-        self.simple_result_summary_label.setWordWrap(True)
-        layout.addWidget(self.simple_result_summary_label)
-
         self.simple_column_card_box = QGroupBox("准备抓取的列")
+        self.simple_column_card_box.setCheckable(True)
+        self.simple_column_card_box.setChecked(False)
         column_card_layout = QVBoxLayout(self.simple_column_card_box)
         self.simple_column_card_label = QLabel("标题｜正文｜图片｜链接")
         self.simple_column_card_label.setWordWrap(True)
@@ -955,12 +988,32 @@ class UniversalMainWindow(QMainWindow):
         column_card_layout.addWidget(self.simple_column_card_label)
         column_card_layout.addWidget(self.simple_column_table)
         column_card_layout.addWidget(self.simple_column_delete_button)
-        layout.addWidget(self.simple_column_card_box)
+        self.bind_collapsible_groupbox(self.simple_column_card_box, checked=False)
 
         self.simple_result_table = self.create_simple_result_table()
         self.simple_result_table.itemSelectionChanged.connect(self.update_current_detail)
         self.simple_result_table.itemSelectionChanged.connect(self.update_simple_result_preview)
-        layout.addWidget(self.simple_result_table, 1)
+        result_box = QGroupBox("采集结果")
+        result_layout = QVBoxLayout(result_box)
+        result_layout.addWidget(self.simple_result_table)
+        result_actions = QHBoxLayout()
+        result_actions.addWidget(self.simple_contact_button)
+        result_actions.addWidget(self.simple_schedule_button)
+        result_actions.addWidget(self.simple_retry_button)
+        result_actions.addStretch(1)
+        result_layout.addLayout(result_actions)
+
+        self.simple_field_table = QTableWidget(0, 0)
+        self.simple_field_table.verticalHeader().setVisible(False)
+        self.simple_field_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.simple_field_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        field_box = QGroupBox("按你的要求整理")
+        field_layout = QVBoxLayout(field_box)
+        self.simple_field_status_label = QLabel("字段：本地规则整理，暂无结果")
+        self.simple_field_status_label.setWordWrap(True)
+        field_layout.addWidget(self.simple_field_status_label)
+        field_layout.addWidget(self.simple_field_table)
+
         preview_box = QGroupBox("结果预览")
         preview_layout = QGridLayout(preview_box)
         self.simple_preview_title_label = QLabel("未选择结果")
@@ -980,17 +1033,11 @@ class UniversalMainWindow(QMainWindow):
         preview_layout.addWidget(self.simple_preview_counts_label, 2, 1)
         preview_layout.addWidget(QLabel("正文"), 3, 0)
         preview_layout.addWidget(self.simple_preview_body_output, 3, 1)
-        layout.addWidget(preview_box)
-        self.simple_field_table = QTableWidget(0, 0)
-        self.simple_field_table.verticalHeader().setVisible(False)
-        self.simple_field_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.simple_field_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(QLabel("按你的要求整理"))
-        self.simple_field_status_label = QLabel("字段：本地规则整理，暂无结果")
-        self.simple_field_status_label.setWordWrap(True)
-        layout.addWidget(self.simple_field_status_label)
-        layout.addWidget(self.simple_field_table)
-        recent_box = QGroupBox("最近结果")
+
+        self.simple_recent_box = QGroupBox("最近结果")
+        recent_box = self.simple_recent_box
+        recent_box.setCheckable(True)
+        recent_box.setChecked(False)
         recent_layout = QVBoxLayout(recent_box)
         self.simple_recent_files_table = QTableWidget(0, 3)
         self.simple_recent_files_table.setHorizontalHeaderLabels(["文件", "时间", "位置"])
@@ -1021,10 +1068,134 @@ class UniversalMainWindow(QMainWindow):
         recent_layout.addWidget(self.simple_recent_files_table)
         recent_layout.addWidget(QLabel("最近采集记录"))
         recent_layout.addWidget(self.simple_recent_records_table)
-        layout.addWidget(recent_box)
+        self.bind_collapsible_groupbox(recent_box, checked=False)
+
+        left_splitter = QSplitter(Qt.Orientation.Vertical)
+        left_splitter.addWidget(result_box)
+        left_splitter.addWidget(field_box)
+        left_splitter.setSizes([420, 240])
+
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.addWidget(preview_box)
+        right_splitter.addWidget(self.simple_column_card_box)
+        right_splitter.addWidget(ai_box)
+        right_splitter.addWidget(recent_box)
+        right_splitter.setSizes([240, 80, 70, 80])
+
+        self.simple_main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.simple_main_splitter.addWidget(left_splitter)
+        self.simple_main_splitter.addWidget(right_splitter)
+        self.simple_main_splitter.setSizes([850, 360])
+        layout.addWidget(self.simple_main_splitter, 1)
+
         self.refresh_simple_recent_area()
         self.on_simple_depth_changed()
         return page
+
+    def apply_simple_workbench_style(self, page):
+        page.setStyleSheet(
+            """
+            QWidget#simpleWorkbench {
+                background: #f6f8fa;
+                color: #1f2937;
+                font-size: 13px;
+            }
+            QLabel#simplePageTitle {
+                font-size: 20px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#simplePageSubtitle {
+                color: #6b7280;
+            }
+            QLabel#simpleStatusPill {
+                background: #eef2ff;
+                color: #3730a3;
+                border: 1px solid #c7d2fe;
+                border-radius: 6px;
+                padding: 6px 10px;
+            }
+            QLabel#simpleProgressText, QLabel#simpleSummaryText {
+                color: #374151;
+            }
+            QGroupBox {
+                background: #ffffff;
+                border: 1px solid #dbe3ef;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding: 10px;
+                font-weight: 600;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+                color: #111827;
+            }
+            QTextEdit, QLineEdit, QComboBox, QTableWidget {
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px;
+                font-weight: 400;
+            }
+            QPushButton {
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #f1f5f9;
+            }
+            QPushButton#primaryButton {
+                background: #2563eb;
+                border: 1px solid #1d4ed8;
+                color: #ffffff;
+            }
+            QPushButton#primaryButton:hover {
+                background: #1d4ed8;
+            }
+            QHeaderView::section {
+                background: #f8fafc;
+                border: 0;
+                border-bottom: 1px solid #e5e7eb;
+                padding: 5px;
+                font-weight: 600;
+            }
+            """
+        )
+
+    def bind_collapsible_groupbox(self, group_box, checked=False):
+        group_box.setChecked(bool(checked))
+        expanded_min_height = group_box.minimumHeight()
+
+        def set_children_visible(visible):
+            layout = group_box.layout()
+            if not layout:
+                return
+            for index in range(layout.count()):
+                item = layout.itemAt(index)
+                widget = item.widget()
+                if widget:
+                    widget.setVisible(bool(visible))
+                child_layout = item.layout()
+                if child_layout:
+                    for child_index in range(child_layout.count()):
+                        child_item = child_layout.itemAt(child_index)
+                        child_widget = child_item.widget()
+                        if child_widget:
+                            child_widget.setVisible(bool(visible))
+            if visible:
+                group_box.setMaximumHeight(16777215)
+                group_box.setMinimumHeight(expanded_min_height)
+            else:
+                group_box.setMinimumHeight(26)
+                group_box.setMaximumHeight(34)
+
+        group_box.toggled.connect(set_children_visible)
+        set_children_visible(checked)
 
     def simple_collect_depth_config(self):
         mode = "deep"

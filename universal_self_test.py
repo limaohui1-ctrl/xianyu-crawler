@@ -125,9 +125,19 @@ def run_universal_self_test():
         "simple_field_status_label",
         "simple_column_table",
         "simple_column_delete_button",
+        "simple_input_box",
+        "simple_ai_box",
+        "simple_recent_box",
+        "simple_main_splitter",
     ):
         if not hasattr(window, attr_name):
             raise AssertionError(f"普通人一键采集面板缺少控件：{attr_name}")
+    if window.tabs.currentWidget().objectName() != "simpleWorkbench":
+        raise AssertionError("普通人首页未使用采集工作台页面结构")
+    if window.simple_input_box.title() != "采集任务" or window.simple_main_splitter.orientation() != Qt.Orientation.Horizontal:
+        raise AssertionError("普通人首页未采用任务区加左右分栏工作台布局")
+    if window.simple_ai_box.isChecked() or window.simple_recent_box.isChecked():
+        raise AssertionError("普通人首页高级设置和最近结果默认应折叠降噪")
     if len(window.simple_step_labels) != 3 or "1 输入" not in window.simple_step_labels[0].text():
         raise AssertionError("普通人面板未展示三步流程")
     if window.simple_start_button.text() != "确认并采集":
