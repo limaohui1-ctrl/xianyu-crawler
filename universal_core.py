@@ -885,7 +885,12 @@ def load_risk_confirmations(file_path=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except Exception:
+    except Exception as exc:
+        record_recoverable_error(
+            "读取风险确认记录失败，已使用空记录",
+            exc,
+            details={"file": file_path},
+        )
         return {}
     states = payload.get("states", payload) if isinstance(payload, dict) else {}
     if not isinstance(states, dict):
@@ -1615,7 +1620,12 @@ def load_ai_settings(file_path=None):
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except Exception as exc:
+        record_recoverable_error(
+            "读取 AI 设置失败，已使用默认设置",
+            exc,
+            details={"file": file_path},
+        )
         return settings
     data = decrypt_ai_settings_from_disk(data)
     if isinstance(data, dict):
@@ -2771,7 +2781,12 @@ class TemplateStore:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as exc:
+            record_recoverable_error(
+                "读取模板库失败，已重建默认模板",
+                exc,
+                details={"file": self.file_path},
+            )
             templates = default_templates()
             self.save(templates)
             return templates

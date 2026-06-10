@@ -4792,7 +4792,12 @@ class UniversalMainWindow(QMainWindow):
             try:
                 custom_values = json.loads(body.split(marker, 1)[1].strip())
                 return custom_values.get(key, "")
-            except Exception:
+            except Exception as exc:
+                record_recoverable_error(
+                    "解析结果自定义字段失败，已留空该字段",
+                    exc,
+                    details={"field": key},
+                )
                 return ""
         return ""
 
