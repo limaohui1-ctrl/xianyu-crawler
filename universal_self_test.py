@@ -3265,6 +3265,7 @@ def run_universal_self_test():
                   <a href="/article/20002">测试文章详情</a>
                   <a href="/help">帮助中心</a>
                   <a class="next" href="/page2">下一页</a>
+                  <a class="more" href="/feed">加载更多</a>
                   <a href="https://outside.example.com/product/999">站外商品</a>
                 </body></html>
                 """,
@@ -3279,6 +3280,21 @@ def run_universal_self_test():
                   <h1>第二页商品</h1>
                   <p>第二页详情资料，包含库存、规格和发货说明。</p>
                   <img src="/product-10002.png" alt="第二页商品图">
+                </body></html>
+                """,
+                "/feed": """
+                <html><body>
+                  <h1>更多列表</h1>
+                  <p>模拟滚动后加载出的更多商品列表。</p>
+                  <a href="/product/10003">滚动商品详情</a>
+                </body></html>
+                """,
+                "/product/10003": """
+                <html><body>
+                  <h1>滚动商品</h1>
+                  <p>滚动加载后进入的商品详情，包含颜色、尺码、库存和图片资料。</p>
+                  <img src="/product-10003.png" alt="滚动商品图">
+                  <table><tr><th>尺码</th><td>M/L/XL</td></tr><tr><th>库存</th><td>18</td></tr></table>
                 </body></html>
                 """,
                 "/product/10001": """
@@ -3436,6 +3452,41 @@ def run_universal_self_test():
             raise AssertionError(f"自动深抓未覆盖分页里的商品详情：{ranked_urls}")
         if any("/help" in item for item in ranked_urls):
             raise AssertionError(f"自动深抓错误抓取了帮助/导航页：{ranked_urls}")
+        ordinary_site_results = collector.collect_urls(
+            [site_base],
+            use_browser=False,
+            page_limit=1,
+            delay_seconds=0,
+            scrape_subpages=False,
+            skip_unchanged=False,
+        )
+        complete_site_results = collector.collect_urls(
+            [site_base],
+            use_browser=False,
+            page_limit=3,
+            delay_seconds=0,
+            scrape_subpages=True,
+            subpage_limit=6,
+            selected_subpage_urls=[],
+            skip_unchanged=False,
+        )
+        ordinary_urls = [item.get("url", "") for item in ordinary_site_results]
+        complete_urls = [item.get("url", "") for item in complete_site_results]
+        for expected_url in ("/page2", "/feed", "/product/10001", "/product/10002", "/product/10003"):
+            if not any(expected_url in item for item in complete_urls):
+                raise AssertionError(f"完整采集样例集未覆盖 {expected_url}：{complete_urls}")
+        if len(complete_site_results) <= len(ordinary_site_results):
+            raise AssertionError(f"完整采集没有比普通采集覆盖更多页面：普通={ordinary_urls} 完整={complete_urls}")
+        ordinary_body_len = sum(len(item.get("body", "") or "") for item in ordinary_site_results)
+        complete_body_len = sum(len(item.get("body", "") or "") for item in complete_site_results)
+        ordinary_images = sum(len(item.get("images", []) or []) for item in ordinary_site_results)
+        complete_images = sum(len(item.get("images", []) or []) for item in complete_site_results)
+        complete_tables = sum(len(item.get("tables", []) or []) for item in complete_site_results)
+        if complete_body_len <= ordinary_body_len or complete_images <= ordinary_images or complete_tables < 1:
+            raise AssertionError(
+                f"完整采集样例集未证明资料增加：body {ordinary_body_len}->{complete_body_len}, "
+                f"images {ordinary_images}->{complete_images}, tables {complete_tables}"
+            )
         joined_discovery_logs = "\n".join(discovery_logs)
         for expected_log in ("自动翻页候选", "自动发现", "子页面发现", "排除示例"):
             if expected_log not in joined_discovery_logs:
