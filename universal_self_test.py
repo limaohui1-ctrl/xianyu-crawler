@@ -529,6 +529,18 @@ def run_universal_self_test():
     )
     if blocked_diagnosis.get("reason") != "反爬或权限限制" or "真实浏览器" not in blocked_diagnosis.get("advice", ""):
         raise AssertionError(f"反爬/权限诊断不正确：{blocked_diagnosis}")
+    pagination_diagnosis = window.crawl_diagnosis_for_record(
+        {
+            "url": "https://example.com/list",
+            "title": "列表页",
+            "body": "列表摘要",
+            "images": [],
+            "links": [{"text": "下一页", "url": "https://example.com/list?page=2"}],
+            "tables": [],
+        }
+    )
+    if pagination_diagnosis.get("reason") != "分页可能未继续" or "下一页" not in pagination_diagnosis.get("advice", ""):
+        raise AssertionError(f"分页未继续诊断不正确：{pagination_diagnosis}")
     detail_diagnosis = window.crawl_diagnosis_for_record(
         {
             "url": "https://example.com/list-item",
@@ -539,8 +551,23 @@ def run_universal_self_test():
             "tables": [],
         }
     )
-    if detail_diagnosis.get("reason") != "详情页可能未展开" or "重抓低完整度" not in detail_diagnosis.get("advice", ""):
-        raise AssertionError(f"详情页未展开诊断不正确：{detail_diagnosis}")
+    if detail_diagnosis.get("reason") != "子链接未展开" or "子链接" not in detail_diagnosis.get("advice", ""):
+        raise AssertionError(f"子链接未展开诊断不正确：{detail_diagnosis}")
+    no_subpage_diagnosis = window.crawl_diagnosis_for_record(
+        {
+            "url": "https://example.com/no-links",
+            "title": "无子链接页",
+            "body": "页面正文已经抓到足够长的产品介绍，但没有发现可以继续进入的详情页链接，需要扫描或手动选择子页面。",
+            "price": "88",
+            "published_time": "2026-06-09",
+            "author": "Example",
+            "images": [],
+            "links": [],
+            "tables": [[["规格", "值"]]],
+        }
+    )
+    if no_subpage_diagnosis.get("reason") != "子链接候选不足" or "扫描" not in no_subpage_diagnosis.get("advice", ""):
+        raise AssertionError(f"子链接候选不足诊断不正确：{no_subpage_diagnosis}")
     field_rule_diagnosis = window.crawl_diagnosis_for_record(
         {
             "url": "https://example.com/custom",

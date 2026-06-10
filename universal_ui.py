@@ -1982,6 +1982,54 @@ class UniversalMainWindow(QMainWindow):
         average = int(sum(scores) / len(scores)) if scores else 0
         return f"结果：共 {len(self.records)} 条，平均完整度 {average}%，" + "，".join(parts)
 
+    def record_links_matching_tokens(self, record, tokens):
+        matched = []
+        for link in record.get("links", []) or []:
+            if isinstance(link, dict):
+                text = str(link.get("text") or link.get("title") or "")
+                url = str(link.get("url") or link.get("href") or "")
+            else:
+                text = str(link)
+                url = str(link)
+            combined = f"{text} {url}".lower()
+            if any(token in combined for token in tokens):
+                matched.append({"text": text, "url": url})
+        return matched
+
+    def pagination_like_links(self, record):
+        tokens = (
+            "下一页",
+            "下页",
+            "翻页",
+            "页码",
+            "加载更多",
+            "pagination",
+            "pager",
+            "next",
+            "page=",
+            "/page",
+            "page/",
+        )
+        return self.record_links_matching_tokens(record, tokens)
+
+    def detail_like_links(self, record):
+        tokens = (
+            "详情",
+            "商品",
+            "宝贝",
+            "查看",
+            "detail",
+            "item",
+            "product",
+            "goods",
+            "offer",
+            "/p/",
+            "/item/",
+            "/detail",
+            "/product",
+        )
+        return self.record_links_matching_tokens(record, tokens)
+
     def crawl_diagnosis_for_record(self, record):
         self.ensure_record_completeness(record)
         missing = set(record.get("completeness_missing", []) or [])
@@ -1991,6 +2039,8 @@ class UniversalMainWindow(QMainWindow):
         link_count = len(record.get("links", []) or [])
         image_count = len(record.get("images", []) or [])
         table_count = len(record.get("tables", []) or [])
+        pagination_links = self.pagination_like_links(record)
+        detail_links = self.detail_like_links(record)
         if error_text:
             lower_error = error_text.lower()
             if any(token in lower_error for token in ("403", "401", "captcha", "验证码", "登录", "forbidden", "access denied")):
@@ -2006,6 +2056,22 @@ class UniversalMainWindow(QMainWindow):
             }
         if score >= 85:
             return {"reason": "资料较完整", "advice": "可以直接导出或加入监控。", "severity": "正常"}
+        if pagination_links and ("正文" in missing or score < 70):
+            return {
+                "reason": "分页可能未继续",
+                "advice": "应用诊断建议会切到完整模式，提高翻页、滚动和等待，继续读取下一页/更多内容。",
+                "severity": "需处理",
+                "pagination_links": len(pagination_links),
+                "detail_links": len(detail_links),
+            }
+        if detail_links and missing.intersection({"图片", "价格", "表格/规格", "正文"}):
+            return {
+                "reason": "子链接未展开",
+                "advice": "使用“重抓低完整度”让完整模式自动进入同站详情/商品子链接，补图片、价格和规格。",
+                "severity": "需处理",
+                "pagination_links": len(pagination_links),
+                "detail_links": len(detail_links),
+            }
         if len(body_text) < 40 and image_count == 0 and table_count == 0:
             return {
                 "reason": "疑似动态加载",
@@ -2023,6 +2089,14 @@ class UniversalMainWindow(QMainWindow):
                 "reason": "字段规则可能不匹配",
                 "advice": "点击 AI 建议列或到 AI 抓取工作台修复字段规则。",
                 "severity": "需确认",
+            }
+        if "链接" in missing and missing.intersection({"图片", "价格", "表格/规格"}):
+            return {
+                "reason": "子链接候选不足",
+                "advice": "应用诊断建议会切到完整模式；若仍抓不到，请到 AI 工作台扫描并手动选择子页面链接。",
+                "severity": "需确认",
+                "pagination_links": len(pagination_links),
+                "detail_links": len(detail_links),
             }
         return {
             "reason": "页面资料偏少",
@@ -2110,7 +2184,7 @@ class UniversalMainWindow(QMainWindow):
             self.simple_information("提示", "当前没有需要处理的诊断建议。")
             return False
         reason = diagnosis.get("reason", "")
-        if reason in {"疑似动态加载", "详情页可能未展开"}:
+        if reason in {"疑似动态加载", "详情页可能未展开", "分页可能未继续", "子链接未展开", "子链接候选不足"}:
             self.apply_complete_crawl_settings()
             if self.low_quality_urls():
                 self.simple_status_label.setText("已应用诊断建议：完整模式重抓低完整度结果")
@@ -2158,10 +2232,17 @@ class UniversalMainWindow(QMainWindow):
                 scores["完整"] += 20
                 scores["登录浏览器"] += 12
                 scores["普通"] -= 15
-            elif reason == "详情页可能未展开":
+            elif reason in {"详情页可能未展开", "子链接未展开"}:
                 scores["深度"] += 12
                 scores["完整"] += 18
                 scores["普通"] -= 10
+            elif reason == "分页可能未继续":
+                scores["完整"] += 20
+                scores["深度"] += 12
+                scores["普通"] -= 12
+            elif reason == "子链接候选不足":
+                scores["完整"] += 10
+                scores["AI字段修复"] += 8
             elif reason == "反爬或权限限制":
                 scores["登录浏览器"] += 25
                 scores["普通"] -= 20
