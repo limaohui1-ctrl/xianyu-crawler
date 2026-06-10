@@ -1,12 +1,65 @@
 """Noninteractive regression self-test for the universal collector UI."""
 
 import gc
+import json
+import os
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Keep this module as a mechanical extraction from universal_ui.py.
-# The star import intentionally reuses the existing UI module namespace so the
-# self-test can move independently without changing hundreds of assertions at once.
-from universal_ui import *
-from universal_core import records_to_tsv
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox, QProgressBar
+
+from universal_core import (
+    AI_CALL_LOG_FILE,
+    AI_PROVIDER_PRESETS,
+    AI_SETTINGS_FILE,
+    AIClient,
+    CHANGE_ALERT_STATE_FILE,
+    CollectorDatabase,
+    DB_FILE,
+    DEFAULT_PAGE_LIMIT,
+    FIELD_HEADERS,
+    FieldRule,
+    RISK_CONFIRMATION_FILE,
+    SCHEDULE_FILE,
+    SiteTemplate,
+    TEMPLATE_FILE,
+    UniversalCollector,
+    UniversalExtractor,
+    ai_parse_task,
+    ai_provider_preset_health,
+    ai_provider_runtime_overview,
+    ai_repair_fields,
+    ai_suggest_fields,
+    analyze_collect_task,
+    append_ai_repair_history,
+    classify_error,
+    cleanup_user_data,
+    diagnose_ai_settings,
+    download_images_from_records,
+    ensure_runtime_dirs,
+    export_records,
+    export_table_data,
+    extract_emails_and_phones,
+    load_ai_call_logs,
+    load_ai_repair_history,
+    load_ai_settings,
+    load_change_alert_states,
+    load_risk_confirmations,
+    load_schedules,
+    normalize_url,
+    page_snapshot_from_html,
+    records_to_tsv,
+    refresh_ai_provider_models,
+    runtime_self_test_error_log_file,
+    runtime_startup_log_file,
+    save_ai_settings,
+    scene_template_presets,
+    summarize_ai_call_logs,
+    test_ai_provider_connectivity,
+)
+from universal_ui import AIWorker, UniversalMainWindow
 from universal_self_test_runtime import prepare_self_test_runtime
 
 def run_universal_self_test():
