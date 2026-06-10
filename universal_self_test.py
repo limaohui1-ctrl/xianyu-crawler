@@ -378,6 +378,13 @@ def run_universal_self_test():
     low_quality_urls = window.low_quality_urls()
     if "https://example.com/weak" not in low_quality_urls:
         raise AssertionError(f"低完整度筛选未发现弱结果：{low_quality_urls}")
+    low_quality_queue = window.low_quality_retry_queue()
+    weak_queue_row = next((row for row in low_quality_queue if row.get("url") == "https://example.com/weak"), {})
+    if not weak_queue_row or "低完整度页" not in weak_queue_row.get("title", "") or not weak_queue_row.get("missing"):
+        raise AssertionError(f"低完整度重抓预览队列缺少标题、完整度或缺项：{low_quality_queue}")
+    selected_preview_urls = window.confirm_low_quality_retry_queue(low_quality_queue)
+    if "https://example.com/weak" not in selected_preview_urls:
+        raise AssertionError(f"低完整度重抓预览未默认选择弱结果：{selected_preview_urls}")
     low_quality_starts = []
     original_low_quality_start = window.start_collecting
     window.start_collecting = lambda skip_confirmation=False, runtime_overrides=None: low_quality_starts.append(

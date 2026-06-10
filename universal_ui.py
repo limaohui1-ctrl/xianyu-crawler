@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -842,13 +844,83 @@ class UniversalMainWindow(QMainWindow):
                 urls.append(url)
         return urls
 
+    def low_quality_retry_queue(self, records=None, limit=100):
+        queue_rows = []
+        for record in self.low_quality_records(records, limit):
+            url = normalize_url(record.get("url", ""))
+            if not url:
+                continue
+            queue_rows.append(
+                {
+                    "enabled": True,
+                    "url": url,
+                    "title": compact_text(record.get("title") or "(无标题)", 80),
+                    "completeness": record.get("completeness_label", ""),
+                    "missing": "、".join(record.get("completeness_missing", []) or []),
+                }
+            )
+        return queue_rows
+
+    def confirm_low_quality_retry_queue(self, queue_rows):
+        self.last_low_quality_retry_queue = [dict(row) for row in queue_rows or []]
+        if not queue_rows:
+            return []
+        if os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST") == "1":
+            return [row.get("url", "") for row in queue_rows if row.get("enabled", True)]
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("重抓低完整度结果")
+        dialog.resize(820, 420)
+        layout = QVBoxLayout(dialog)
+        summary = QLabel(f"将用完整模式重抓 {len(queue_rows)} 条低完整度结果。可取消不需要重抓的网址。")
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["重抓", "标题", "完整度", "缺少资料", "网址"])
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        for row_data in queue_rows:
+            row = table.rowCount()
+            table.insertRow(row)
+            enabled_item = QTableWidgetItem("")
+            enabled_item.setFlags((enabled_item.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsEditable)
+            enabled_item.setCheckState(Qt.CheckState.Checked if row_data.get("enabled", True) else Qt.CheckState.Unchecked)
+            table.setItem(row, 0, enabled_item)
+            for column, key in enumerate(("title", "completeness", "missing", "url"), start=1):
+                value = row_data.get(key, "")
+                item = QTableWidgetItem(str(value))
+                item.setToolTip(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row, column, item)
+        layout.addWidget(table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return []
+        selected_urls = []
+        for row in range(table.rowCount()):
+            enabled = table.item(row, 0)
+            url_item = table.item(row, 4)
+            if enabled and enabled.checkState() == Qt.CheckState.Checked and url_item:
+                selected_urls.append(url_item.text())
+        return selected_urls
+
     def simple_retry_low_quality_items(self):
         if self.worker:
             self.simple_status_label.setText("正在采集，请先等待当前任务结束")
             self.simple_information("提示", "正在采集，请先等待当前任务结束。")
             return False
-        weak_records = self.low_quality_records()
-        urls = [normalize_url(record.get("url", "")) for record in weak_records]
+        queue_rows = self.low_quality_retry_queue()
+        urls = self.confirm_low_quality_retry_queue(queue_rows)
+        urls = [normalize_url(url) for url in urls]
         urls = [url for index, url in enumerate(urls) if url and url not in urls[:index]]
         if not urls:
             self.simple_status_label.setText("当前没有低完整度结果需要重抓")
