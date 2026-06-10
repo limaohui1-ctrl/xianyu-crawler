@@ -571,6 +571,11 @@ class UniversalMainWindow(QMainWindow):
         self.current_run_progress = {}
         self.current_run_strategy_label = ""
         self.latest_strategy_comparison_report = {}
+        self.strategy_dual_run_active = False
+        self.strategy_dual_run_ready_report = False
+        self.strategy_dual_run_step = ""
+        self.strategy_dual_run_urls = []
+        self.strategy_dual_run_records_before = 0
         self.latest_wizard_analysis_rows = []
         self.auto_apply_repair_after_ai = False
         self._loading_ai_settings = False
@@ -1504,10 +1509,10 @@ class UniversalMainWindow(QMainWindow):
         group_box.toggled.connect(set_children_visible)
         set_children_visible(checked)
 
-    def simple_collect_depth_config(self):
-        mode = "deep"
-        if hasattr(self, "simple_depth_combo"):
+    def simple_collect_depth_config(self, mode=None):
+        if mode is None and hasattr(self, "simple_depth_combo"):
             mode = self.simple_depth_combo.currentData() or "deep"
+        mode = mode or "deep"
         configs = {
             "normal": {
                 "label": "普通",
@@ -1532,6 +1537,13 @@ class UniversalMainWindow(QMainWindow):
             },
         }
         return configs.get(mode, configs["deep"])
+
+    def apply_simple_depth_mode(self, mode):
+        if hasattr(self, "simple_depth_combo"):
+            index = self.simple_depth_combo.findData(mode)
+            if index >= 0:
+                self.simple_depth_combo.setCurrentIndex(index)
+        return self.simple_collect_depth_config(mode)
 
     def on_simple_depth_changed(self):
         if not hasattr(self, "simple_progress_label") or self.worker:
@@ -2317,8 +2329,137 @@ class UniversalMainWindow(QMainWindow):
             "rows": rows,
         }
 
+    def strategy_dual_run_overrides(self, mode):
+        depth_config = self.simple_collect_depth_config(mode)
+        return {
+            "scrape_subpages": True,
+            "subpage_limit": depth_config["subpage_limit"],
+            "selected_subpage_urls": [],
+            "simple_auto_subpages": True,
+            "simple_collect_depth": depth_config["label"],
+            "skip_unchanged": False,
+        }
+
+    def prepare_strategy_dual_run_mode(self, mode):
+        depth_config = self.apply_simple_depth_mode(mode)
+        self.use_browser_checkbox.setChecked(True)
+        self.page_limit_input.setValue(depth_config["page_limit"])
+        self.scroll_times_input.setValue(max(depth_config["scroll_times"], self.scroll_times_input.value()))
+        self.delay_input.setValue(max(1, self.delay_input.value()))
+        self.keep_login_checkbox.setChecked(False)
+        self.subpage_checkbox.setChecked(False)
+        self.subpage_limit_input.setValue(0)
+        self.selected_subpage_urls = []
+        return depth_config
+
+    def start_strategy_dual_run(self):
+        if self.worker:
+            if hasattr(self, "simple_strategy_compare_label"):
+                self.simple_strategy_compare_label.setText("实测对比：当前采集运行中，完成后再开始对比")
+            return False
+        self.sync_simple_inputs_to_background()
+        urls = self.urls_from_input()
+        if not urls:
+            self.simple_information("提示", "请先输入至少一个网址，再运行实测对比。")
+            self.set_simple_flow_step("输入")
+            return False
+        self.simple_ai_field_rules = []
+        self.simple_ai_suggest_pending = False
+        self.clear_current_results()
+        self.simple_merge_subpage_results = True
+        self.simple_subpage_parent_map = {}
+        self.url_input.setPlainText("\n".join(urls))
+        if hasattr(self, "ai_url_input"):
+            self.ai_url_input.setText(urls[0])
+        self.simple_select_default_template()
+        depth_config = self.prepare_strategy_dual_run_mode("normal")
+        self.strategy_dual_run_active = True
+        self.strategy_dual_run_ready_report = False
+        self.strategy_dual_run_step = "普通"
+        self.strategy_dual_run_urls = list(urls)
+        self.strategy_dual_run_records_before = len(self.records)
+        if hasattr(self, "simple_strategy_compare_label"):
+            self.simple_strategy_compare_label.setText("实测对比：正在采集普通模式样本")
+        if hasattr(self, "simple_status_label"):
+            self.simple_status_label.setText("实测对比：先用普通模式采集样本")
+        if hasattr(self, "simple_progress_label"):
+            self.simple_progress_label.setText(depth_config["progress"])
+        self.set_simple_flow_step("采集")
+        self.append_log("实测对比已启动：先运行普通模式，再自动运行完整模式。")
+        self.start_collecting(
+            skip_confirmation=True,
+            runtime_overrides=self.strategy_dual_run_overrides("normal"),
+        )
+        return True
+
+    def maybe_continue_strategy_dual_run(self, status):
+        if not getattr(self, "strategy_dual_run_active", False):
+            return False
+        if status not in ("finished", "partial"):
+            self.strategy_dual_run_active = False
+            self.strategy_dual_run_step = ""
+            self.strategy_dual_run_urls = []
+            if hasattr(self, "simple_strategy_compare_label"):
+                self.simple_strategy_compare_label.setText(f"实测对比：采集结束为 {status}，未继续自动对比")
+            return False
+        if self.strategy_dual_run_step == "普通":
+            self.strategy_dual_run_step = "完整"
+            urls = list(self.strategy_dual_run_urls or self.urls_from_input())
+            if urls:
+                self.url_input.setPlainText("\n".join(urls))
+            depth_config = self.prepare_strategy_dual_run_mode("complete")
+            if hasattr(self, "simple_strategy_compare_label"):
+                self.simple_strategy_compare_label.setText("实测对比：普通样本完成，正在采集完整模式样本")
+            if hasattr(self, "simple_status_label"):
+                self.simple_status_label.setText("实测对比：继续用完整模式采集样本")
+            if hasattr(self, "simple_progress_label"):
+                self.simple_progress_label.setText(depth_config["progress"])
+            self.append_log("实测对比：普通模式完成，开始完整模式。")
+            self.start_collecting(
+                skip_confirmation=True,
+                runtime_overrides=self.strategy_dual_run_overrides("complete"),
+            )
+            return True
+        if self.strategy_dual_run_step == "完整":
+            self.strategy_dual_run_active = False
+            self.strategy_dual_run_step = ""
+            self.strategy_dual_run_urls = []
+            self.strategy_dual_run_ready_report = True
+        return False
+
+    def finalize_strategy_dual_run_report(self):
+        if not getattr(self, "strategy_dual_run_ready_report", False):
+            return False
+        self.strategy_dual_run_ready_report = False
+        records = getattr(self, "records", [])[int(self.strategy_dual_run_records_before or 0):]
+        report = self.build_strategy_comparison_report(records)
+        if len(report.get("rows", [])) < 2:
+            report = self.build_strategy_comparison_report()
+        self.latest_strategy_comparison_report = report
+        summary = report.get("summary", "实测对比：等待两种策略样本")
+        if hasattr(self, "simple_strategy_compare_label"):
+            self.simple_strategy_compare_label.setText(summary)
+        if hasattr(self, "simple_status_label"):
+            self.simple_status_label.setText(summary)
+        if hasattr(self, "simple_progress_label"):
+            rows_text = "；".join(
+                f"{row.get('strategy')} 完整度{row.get('avg_score')} 链接{row.get('links')}"
+                for row in report.get("rows", [])[:3]
+            )
+            self.simple_progress_label.setText(f"{summary}。{rows_text}")
+        best = report.get("best", "")
+        if best == "完整":
+            self.apply_complete_crawl_settings()
+        elif best == "深度":
+            self.apply_simple_depth_mode("deep")
+        elif best == "普通":
+            self.apply_simple_depth_mode("normal")
+        return bool(report.get("rows"))
+
     def simple_run_strategy_comparison(self):
         report = self.build_strategy_comparison_report()
+        if len(report.get("rows", [])) < 2:
+            return self.start_strategy_dual_run()
         self.latest_strategy_comparison_report = report
         summary = report.get("summary", "实测对比：等待两种策略样本")
         if hasattr(self, "simple_strategy_compare_label"):
@@ -6320,6 +6461,8 @@ class UniversalMainWindow(QMainWindow):
         self.worker_thread = None
         self.current_run_id = None
         self.current_run_strategy_label = ""
+        if self.maybe_continue_strategy_dual_run(status):
+            return
         self.load_recent_records()
         alert_count = self.refresh_change_alerts(silent=True, notify=True)
         if alert_count:
@@ -6332,6 +6475,7 @@ class UniversalMainWindow(QMainWindow):
         self.refresh_simple_recent_area()
         self.refresh_new_user_flow_status("export" if self.records else "prepared")
         self.fill_result_quality_table()
+        self.finalize_strategy_dual_run_report()
 
     def add_record(self, record):
         if getattr(self, "current_run_strategy_label", "") and not record.get("simple_collect_depth"):

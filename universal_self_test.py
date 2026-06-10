@@ -277,6 +277,52 @@ def run_universal_self_test():
             raise AssertionError(f"完整模式采集深度参数错误：{complete_overrides}")
         if window.page_limit_input.value() != 5 or window.scroll_times_input.value() < 5:
             raise AssertionError("完整模式未提高分页或滚动采集参数")
+        window.clear_current_results()
+        window.simple_url_input.setPlainText("https://example.com/dual")
+        window.sync_simple_inputs_to_background()
+        if not window.simple_run_strategy_comparison():
+            raise AssertionError("缺少实测样本时未自动启动普通/完整双跑")
+        dual_normal_overrides = direct_starts[-1].get("runtime_overrides", {})
+        if (
+            dual_normal_overrides.get("simple_collect_depth") != "普通"
+            or dual_normal_overrides.get("subpage_limit") != 3
+            or dual_normal_overrides.get("skip_unchanged") is not False
+        ):
+            raise AssertionError(f"实测对比首轮未使用普通模式：{dual_normal_overrides}")
+        if not window.strategy_dual_run_active or window.strategy_dual_run_step != "普通":
+            raise AssertionError("实测对比未记录普通首轮状态")
+        if not window.maybe_continue_strategy_dual_run("finished"):
+            raise AssertionError("实测对比普通模式结束后未自动接力完整模式")
+        dual_complete_overrides = direct_starts[-1].get("runtime_overrides", {})
+        if dual_complete_overrides.get("simple_collect_depth") != "完整" or dual_complete_overrides.get("subpage_limit") != 30:
+            raise AssertionError(f"实测对比第二轮未使用完整模式：{dual_complete_overrides}")
+        window.records = [
+            {
+                "simple_collect_depth": "普通",
+                "completeness_score": 20,
+                "completeness_label": "20% 偏少",
+                "completeness_missing": ["图片", "链接"],
+                "images": [],
+                "links": [],
+                "tables": [],
+                "url": "https://example.com/dual",
+            },
+            {
+                "simple_collect_depth": "完整",
+                "completeness_score": 90,
+                "completeness_label": "90% 完整",
+                "completeness_missing": [],
+                "images": [{"url": "x"}],
+                "links": [{"url": "y"}],
+                "tables": [[["a"]]],
+                "url": "https://example.com/dual",
+            },
+        ]
+        if window.maybe_continue_strategy_dual_run("finished"):
+            raise AssertionError("实测对比完整模式结束后不应继续启动第三轮")
+        if not window.finalize_strategy_dual_run_report() or "推荐 完整" not in window.simple_strategy_compare_label.text():
+            raise AssertionError(f"实测对比双跑结束后未生成完整推荐：{window.simple_strategy_compare_label.text()}")
+        window.clear_current_results()
     finally:
         window.start_collecting = original_simple_start_collecting
         if hasattr(window, "_self_test_start_hook"):
