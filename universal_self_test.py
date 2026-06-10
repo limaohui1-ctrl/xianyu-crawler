@@ -102,6 +102,7 @@ def run_universal_self_test():
         "simple_image_button",
         "simple_schedule_button",
         "simple_retry_button",
+        "simple_retry_low_quality_button",
         "simple_real_check_button",
         "simple_depth_combo",
         "simple_column_card_label",
@@ -374,7 +375,30 @@ def run_universal_self_test():
         raise AssertionError("低完整度结果未展示完整度条")
     if "缺少" not in window.simple_result_table.item(low_row, 1).toolTip():
         raise AssertionError("低完整度结果标题未提示缺少资料")
+    low_quality_urls = window.low_quality_urls()
+    if "https://example.com/weak" not in low_quality_urls:
+        raise AssertionError(f"低完整度筛选未发现弱结果：{low_quality_urls}")
+    low_quality_starts = []
+    original_low_quality_start = window.start_collecting
+    window.start_collecting = lambda skip_confirmation=False, runtime_overrides=None: low_quality_starts.append(
+        {
+            "urls": list(window.urls_from_input()),
+            "skip_confirmation": skip_confirmation,
+            "runtime_overrides": dict(runtime_overrides or {}),
+        }
+    )
+    try:
+        if not window.simple_retry_low_quality_items():
+            raise AssertionError("低完整度一键重抓未启动")
+    finally:
+        window.start_collecting = original_low_quality_start
+    if not low_quality_starts or "https://example.com/weak" not in low_quality_starts[-1].get("urls", []):
+        raise AssertionError(f"低完整度一键重抓未带入弱结果网址：{low_quality_starts}")
+    low_quality_overrides = low_quality_starts[-1].get("runtime_overrides", {})
+    if low_quality_overrides.get("subpage_limit") != 10 or low_quality_overrides.get("simple_collect_depth") != "完整" or low_quality_overrides.get("skip_unchanged") is not False:
+        raise AssertionError(f"低完整度一键重抓未使用完整重采参数：{low_quality_overrides}")
     window.simple_merge_subpage_results = False
+    window.set_simple_flow_step("导出")
     window.simple_ai_field_rules = []
     fallback_headers = [
         window.simple_field_table.horizontalHeaderItem(column).text()

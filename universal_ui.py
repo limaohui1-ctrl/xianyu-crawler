@@ -815,6 +815,72 @@ class UniversalMainWindow(QMainWindow):
         self.start_collecting(skip_confirmation=True)
         return True
 
+    def low_quality_records(self, records=None, limit=100):
+        source_records = list(records if records is not None else (self.records or self.database.recent_records(limit)))
+        weak_records = []
+        required_missing = {"图片", "价格", "表格/规格"}
+        seen_urls = set()
+        for record in source_records:
+            if not isinstance(record, dict):
+                continue
+            self.ensure_record_completeness(record)
+            url = normalize_url(record.get("url", ""))
+            if not url or url in seen_urls:
+                continue
+            score = int(record.get("completeness_score") or 0)
+            missing = set(record.get("completeness_missing", []) or [])
+            if score < 60 or missing.intersection(required_missing):
+                weak_records.append(record)
+                seen_urls.add(url)
+        return weak_records
+
+    def low_quality_urls(self, records=None, limit=100):
+        urls = []
+        for record in self.low_quality_records(records, limit):
+            url = normalize_url(record.get("url", ""))
+            if url and url not in urls:
+                urls.append(url)
+        return urls
+
+    def simple_retry_low_quality_items(self):
+        if self.worker:
+            self.simple_status_label.setText("正在采集，请先等待当前任务结束")
+            self.simple_information("提示", "正在采集，请先等待当前任务结束。")
+            return False
+        weak_records = self.low_quality_records()
+        urls = [normalize_url(record.get("url", "")) for record in weak_records]
+        urls = [url for index, url in enumerate(urls) if url and url not in urls[:index]]
+        if not urls:
+            self.simple_status_label.setText("当前没有低完整度结果需要重抓")
+            self.simple_information("提示", "当前没有低完整度结果需要重抓。")
+            return False
+        complete_index = self.simple_depth_combo.findData("complete") if hasattr(self, "simple_depth_combo") else -1
+        if complete_index >= 0:
+            self.simple_depth_combo.setCurrentIndex(complete_index)
+        depth_config = self.simple_collect_depth_config()
+        self.simple_select_default_template()
+        self.use_browser_checkbox.setChecked(True)
+        self.page_limit_input.setValue(depth_config["page_limit"])
+        self.scroll_times_input.setValue(max(depth_config["scroll_times"], self.scroll_times_input.value()))
+        self.delay_input.setValue(max(1, self.delay_input.value()))
+        self.simple_url_input.setPlainText("\n".join(urls))
+        self.sync_simple_inputs_to_background()
+        self.simple_status_label.setText(f"正在用完整模式重抓 {len(urls)} 条低完整度结果")
+        self.simple_progress_label.setText("后台：低完整度结果会用完整深度重新采集，重点补图片、价格和规格")
+        self.append_log(f"普通首页已准备重抓 {len(urls)} 条低完整度结果。")
+        self.start_collecting(
+            skip_confirmation=True,
+            runtime_overrides={
+                "scrape_subpages": True,
+                "subpage_limit": depth_config["subpage_limit"],
+                "selected_subpage_urls": [],
+                "simple_auto_subpages": True,
+                "simple_collect_depth": depth_config["label"],
+                "skip_unchanged": False,
+            },
+        )
+        return True
+
     def set_collecting_buttons_state(self, running):
         running = bool(running)
         if hasattr(self, "start_button"):
@@ -829,6 +895,8 @@ class UniversalMainWindow(QMainWindow):
             self.simple_stop_button.setText("正在停止" if running and getattr(self, "worker", None) and self.worker.should_stop() else "停止")
         if hasattr(self, "simple_retry_button"):
             self.simple_retry_button.setEnabled(not running)
+        if hasattr(self, "simple_retry_low_quality_button"):
+            self.simple_retry_low_quality_button.setEnabled(not running)
 
     def build_simple_collect_tab(self):
         page = QWidget()
@@ -879,6 +947,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_image_button = QPushButton("下载图片")
         self.simple_schedule_button = QPushButton("定时监控")
         self.simple_retry_button = QPushButton("重试失败")
+        self.simple_retry_low_quality_button = QPushButton("重抓低完整度")
         self.simple_real_check_button = QPushButton("真实自检")
         self.simple_depth_combo = QComboBox()
         self.simple_depth_combo.addItem("普通", "normal")
@@ -895,6 +964,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_image_button.clicked.connect(self.simple_download_images)
         self.simple_schedule_button.clicked.connect(self.simple_add_schedule)
         self.simple_retry_button.clicked.connect(self.simple_retry_failed_items)
+        self.simple_retry_low_quality_button.clicked.connect(self.simple_retry_low_quality_items)
         self.simple_real_check_button.clicked.connect(self.start_real_scrape_check)
         input_layout.addWidget(QLabel("网址"), 0, 0)
         input_layout.addWidget(self.simple_url_input, 0, 1, 1, 4)
@@ -1000,6 +1070,7 @@ class UniversalMainWindow(QMainWindow):
         result_actions.addWidget(self.simple_contact_button)
         result_actions.addWidget(self.simple_schedule_button)
         result_actions.addWidget(self.simple_retry_button)
+        result_actions.addWidget(self.simple_retry_low_quality_button)
         result_actions.addStretch(1)
         result_layout.addLayout(result_actions)
 
@@ -5259,6 +5330,7 @@ class UniversalMainWindow(QMainWindow):
         runtime_overrides = runtime_overrides or {}
         scrape_subpages = bool(runtime_overrides.get("scrape_subpages", self.subpage_checkbox.isChecked()))
         subpage_limit = int(runtime_overrides.get("subpage_limit", self.subpage_limit_input.value()) or 0)
+        skip_unchanged = bool(runtime_overrides.get("skip_unchanged", self.skip_unchanged_checkbox.isChecked()))
         selected_subpages = runtime_overrides.get(
             "selected_subpage_urls",
             self.selected_subpage_urls if self.subpage_checkbox.isChecked() else [],
@@ -5271,7 +5343,7 @@ class UniversalMainWindow(QMainWindow):
             "page_limit": self.page_limit_input.value(),
             "delay_seconds": self.delay_input.value(),
             "keep_login_state": self.keep_login_checkbox.isChecked(),
-            "skip_unchanged": self.skip_unchanged_checkbox.isChecked(),
+            "skip_unchanged": skip_unchanged,
             "scrape_subpages": scrape_subpages,
             "subpage_limit": subpage_limit,
             "selected_subpage_urls": selected_subpages if scrape_subpages else [],
@@ -5513,6 +5585,7 @@ class UniversalMainWindow(QMainWindow):
             return
         scrape_subpages = bool(runtime_overrides.get("scrape_subpages", self.subpage_checkbox.isChecked()))
         subpage_limit = int(runtime_overrides.get("subpage_limit", self.subpage_limit_input.value()) or 0)
+        skip_unchanged = bool(runtime_overrides.get("skip_unchanged", self.skip_unchanged_checkbox.isChecked()))
         selected_subpage_urls = runtime_overrides.get(
             "selected_subpage_urls",
             self.selected_subpage_urls if self.subpage_checkbox.isChecked() else [],
@@ -5542,7 +5615,7 @@ class UniversalMainWindow(QMainWindow):
             page_limit=self.page_limit_input.value(),
             delay_seconds=self.delay_input.value(),
             keep_login_state=self.keep_login_checkbox.isChecked(),
-            skip_unchanged=self.skip_unchanged_checkbox.isChecked(),
+            skip_unchanged=skip_unchanged,
             scrape_subpages=scrape_subpages,
             subpage_limit=subpage_limit,
             selected_subpage_urls=selected_subpage_urls if scrape_subpages else [],
