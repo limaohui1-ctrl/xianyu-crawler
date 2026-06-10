@@ -1495,24 +1495,24 @@ class UniversalMainWindow(QMainWindow):
         configs = {
             "normal": {
                 "label": "普通",
-                "subpage_limit": 1,
+                "subpage_limit": 3,
                 "page_limit": 1,
                 "scroll_times": 1,
-                "progress": "后台：快速读取网页，并补充 1 个同站详情页",
+                "progress": "后台：快速读取网页，并补充最多 3 个同站详情页",
             },
             "deep": {
                 "label": "深度",
-                "subpage_limit": 5,
-                "page_limit": 1,
-                "scroll_times": 2,
-                "progress": "后台：深度读取网页，并补充最多 5 个同站详情页",
+                "subpage_limit": 12,
+                "page_limit": 3,
+                "scroll_times": 3,
+                "progress": "后台：深度读取网页、自动翻页，并补充最多 12 个同站详情页",
             },
             "complete": {
                 "label": "完整",
-                "subpage_limit": 10,
-                "page_limit": 2,
-                "scroll_times": 3,
-                "progress": "后台：尽量完整读取网页、分页和同站详情页",
+                "subpage_limit": 30,
+                "page_limit": 5,
+                "scroll_times": 5,
+                "progress": "后台：尽量完整读取网页、自动翻页和更多同站详情页",
             },
         }
         return configs.get(mode, configs["deep"])

@@ -251,10 +251,10 @@ def run_universal_self_test():
             raise AssertionError(f"普通人一键采集未自动补全并启动网址：{direct_starts}")
         if window.template_combo.currentText() != "通用自动识别":
             raise AssertionError("普通人一键采集未使用通用自动识别模板")
-        if window.subpage_checkbox.isChecked() or window.page_limit_input.value() != 1:
-            raise AssertionError("普通人一键采集不应默认展开复杂分页/子页面")
+        if window.subpage_checkbox.isChecked() or window.page_limit_input.value() != 3:
+            raise AssertionError("普通人一键采集应默认自动翻页但不暴露复杂子页面开关")
         runtime_overrides = direct_starts[-1].get("runtime_overrides", {})
-        if not runtime_overrides.get("scrape_subpages") or runtime_overrides.get("subpage_limit") != 5 or not runtime_overrides.get("simple_auto_subpages"):
+        if not runtime_overrides.get("scrape_subpages") or runtime_overrides.get("subpage_limit") != 12 or not runtime_overrides.get("simple_auto_subpages"):
             raise AssertionError(f"普通人一键采集未启用深度详情页补全：{runtime_overrides}")
         if runtime_overrides.get("simple_collect_depth") != "深度":
             raise AssertionError(f"普通人一键采集未记录采集深度：{runtime_overrides}")
@@ -263,16 +263,16 @@ def run_universal_self_test():
         if not window.simple_prepare_and_start_collect():
             raise AssertionError("普通深度切换后未启动")
         normal_overrides = direct_starts[-1].get("runtime_overrides", {})
-        if normal_overrides.get("subpage_limit") != 1 or normal_overrides.get("simple_collect_depth") != "普通":
+        if normal_overrides.get("subpage_limit") != 3 or normal_overrides.get("simple_collect_depth") != "普通":
             raise AssertionError(f"普通模式采集深度参数错误：{normal_overrides}")
         complete_index = window.simple_depth_combo.findData("complete")
         window.simple_depth_combo.setCurrentIndex(complete_index)
         if not window.simple_prepare_and_start_collect():
             raise AssertionError("完整深度切换后未启动")
         complete_overrides = direct_starts[-1].get("runtime_overrides", {})
-        if complete_overrides.get("subpage_limit") != 10 or complete_overrides.get("simple_collect_depth") != "完整":
+        if complete_overrides.get("subpage_limit") != 30 or complete_overrides.get("simple_collect_depth") != "完整":
             raise AssertionError(f"完整模式采集深度参数错误：{complete_overrides}")
-        if window.page_limit_input.value() != 2 or window.scroll_times_input.value() < 3:
+        if window.page_limit_input.value() != 5 or window.scroll_times_input.value() < 5:
             raise AssertionError("完整模式未提高分页或滚动采集参数")
     finally:
         window.start_collecting = original_simple_start_collecting
@@ -541,7 +541,7 @@ def run_universal_self_test():
     if not low_quality_starts or "https://example.com/weak" not in low_quality_starts[-1].get("urls", []):
         raise AssertionError(f"低完整度一键重抓未带入弱结果网址：{low_quality_starts}")
     low_quality_overrides = low_quality_starts[-1].get("runtime_overrides", {})
-    if low_quality_overrides.get("subpage_limit") != 10 or low_quality_overrides.get("simple_collect_depth") != "完整" or low_quality_overrides.get("skip_unchanged") is not False:
+    if low_quality_overrides.get("subpage_limit") != 30 or low_quality_overrides.get("simple_collect_depth") != "完整" or low_quality_overrides.get("skip_unchanged") is not False:
         raise AssertionError(f"低完整度一键重抓未使用完整重采参数：{low_quality_overrides}")
     if "https://example.com/weak" not in getattr(window, "low_quality_retry_baseline", {}):
         raise AssertionError("低完整度重抓未保存重抓前完整度基线")
@@ -3034,6 +3034,13 @@ def run_universal_self_test():
                   <a href="/product/10002">第二页商品详情</a>
                 </body></html>
                 """,
+                "/product/10002": """
+                <html><body>
+                  <h1>第二页商品</h1>
+                  <p>第二页详情资料，包含库存、规格和发货说明。</p>
+                  <img src="/product-10002.png" alt="第二页商品图">
+                </body></html>
+                """,
                 "/product/10001": """
                 <html>
                   <head>
@@ -3162,6 +3169,32 @@ def run_universal_self_test():
             raise AssertionError("采集内核未实时回调页面进度")
         if not any(event.get("processed", 0) >= 1 for event in progress_events):
             raise AssertionError("采集内核进度回调未更新处理数量")
+        auto_page_results = collector.collect_urls(
+            [site_base],
+            use_browser=False,
+            page_limit=2,
+            delay_seconds=0,
+            scrape_subpages=False,
+            skip_unchanged=False,
+        )
+        auto_page_urls = [item.get("url", "") for item in auto_page_results]
+        if not any("/page2" in item for item in auto_page_urls):
+            raise AssertionError(f"自动翻页未在没有 CSS 选择器时发现第二页：{auto_page_urls}")
+        ranked_auto_subpages = collector.collect_urls(
+            [site_base],
+            use_browser=False,
+            page_limit=2,
+            delay_seconds=0,
+            scrape_subpages=True,
+            subpage_limit=3,
+            selected_subpage_urls=[],
+            skip_unchanged=False,
+        )
+        ranked_urls = [item.get("url", "") for item in ranked_auto_subpages]
+        if not any("product/10001" in item for item in ranked_urls) or not any("product/10002" in item for item in ranked_urls):
+            raise AssertionError(f"自动深抓未覆盖分页里的商品详情：{ranked_urls}")
+        if any("/help" in item for item in ranked_urls):
+            raise AssertionError(f"自动深抓错误抓取了帮助/导航页：{ranked_urls}")
         fallback_logs = []
         fallback_collector = UniversalCollector(logger=lambda message: fallback_logs.append(message))
         fallback_collector.fetch_with_playwright = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("browser unavailable"))

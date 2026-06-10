@@ -3507,14 +3507,15 @@ class UniversalCollector:
         return urls
 
     def subpage_urls_from_record(self, record, parent_url, limit, visited):
-        parent_domain = url_domain(parent_url)
         urls = []
-        for link in record.get("links", []) or []:
-            link_url = link.get("url", "") if isinstance(link, dict) else str(link)
-            link_url = normalize_url(link_url, parent_url)
+        candidates = self.rank_subpage_links(record.get("links", []) or [], parent_url, limit=max(limit * 3, limit, 20))
+        for candidate in candidates:
+            if not candidate.get("selected"):
+                continue
+            link_url = normalize_url(candidate.get("url", ""), parent_url)
             if not link_url or link_url in visited:
                 continue
-            if url_domain(link_url) != parent_domain:
+            if url_domain(link_url) != url_domain(parent_url):
                 continue
             if any(token in link_url.lower() for token in ("#", "javascript:", "mailto:", "tel:")):
                 continue
@@ -3627,6 +3628,10 @@ class UniversalCollector:
             "register",
             "cart",
             "checkout",
+            "page/",
+            "page=",
+            "next",
+            "pagination",
             "privacy",
             "terms",
             "help",
@@ -3635,6 +3640,8 @@ class UniversalCollector:
             "登录",
             "注册",
             "购物车",
+            "下一页",
+            "翻页",
             "隐私",
             "条款",
             "帮助",
@@ -3770,13 +3777,106 @@ class UniversalCollector:
         if page_limit <= 1:
             return [url]
         if template.next_page_selector and use_browser:
-            return self.expand_pages_by_click(
+            clicked_urls = self.expand_pages_by_click(
                 url,
                 template,
                 page_limit,
                 keep_login_state=keep_login_state,
             )
-        return [url]
+            if len(clicked_urls) > 1:
+                return clicked_urls
+        return self.expand_pages_by_links(
+            url,
+            use_browser=use_browser,
+            page_limit=page_limit,
+            keep_login_state=keep_login_state,
+        )
+
+    def fetch_page_html_for_expansion(self, url, use_browser=True, keep_login_state=False):
+        if use_browser:
+            try:
+                return self.fetch_with_playwright(
+                    url,
+                    scroll_times=0,
+                    keep_login_state=keep_login_state,
+                )
+            except Exception as exc:
+                self.log(f"自动翻页浏览器读取失败，改用普通网页读取：{exc}")
+        return self.fetch_static(url)
+
+    def pagination_candidate_urls(self, html, current_url, root_url):
+        soup = BeautifulSoup(html or "", "html.parser")
+        root_domain = url_domain(root_url)
+        candidates = []
+        seen = set()
+        for link in soup.select("a[href]"):
+            href = normalize_url(link.get("href"), current_url)
+            if not href or href in seen:
+                continue
+            seen.add(href)
+            if url_domain(href) != root_domain:
+                continue
+            lower_href = href.lower()
+            if any(token in lower_href for token in ("javascript:", "mailto:", "tel:", "#")):
+                continue
+            text = compact_text(
+                link.get_text(" ", strip=True)
+                or link.get("title", "")
+                or link.get("aria-label", ""),
+                120,
+            )
+            lower_text = text.lower()
+            rel = " ".join(link.get("rel") or []).lower()
+            classes = " ".join(link.get("class") or []).lower()
+            score = 0
+            if "next" in rel:
+                score += 70
+            if any(token in lower_text for token in ("下一页", "下页", "更多", "加载更多", "next", "more", ">")):
+                score += 60
+            if any(token in classes for token in ("next", "pagination", "pager", "more")):
+                score += 45
+            if re.search(r"([?&](page|p|offset|start)=\d+|/page/?\d+|page-\d+|/p/\d+)", lower_href):
+                score += 35
+            if re.fullmatch(r"\d{1,3}", lower_text):
+                score += 15
+            if score <= 0:
+                continue
+            candidates.append({"url": href, "score": score, "text": text})
+        candidates.sort(key=lambda item: (-int(item.get("score", 0)), item.get("url", "")))
+        return [item.get("url", "") for item in candidates]
+
+    def expand_pages_by_links(self, url, use_browser=True, page_limit=DEFAULT_PAGE_LIMIT, keep_login_state=False):
+        start_url = normalize_url(url)
+        if not start_url:
+            return []
+        urls = []
+        seen = set()
+        queue = [start_url]
+        while queue and len(urls) < page_limit:
+            current_url = queue.pop(0)
+            if not current_url or current_url in seen:
+                continue
+            seen.add(current_url)
+            urls.append(current_url)
+            if len(urls) >= page_limit:
+                break
+            try:
+                html = self.fetch_page_html_for_expansion(
+                    current_url,
+                    use_browser=use_browser,
+                    keep_login_state=keep_login_state,
+                )
+            except Exception as exc:
+                self.log(f"自动翻页读取失败：{current_url} | {exc}")
+                continue
+            for candidate_url in self.pagination_candidate_urls(html, current_url, start_url):
+                if candidate_url not in seen and candidate_url not in queue:
+                    queue.append(candidate_url)
+                    if len(queue) + len(urls) >= page_limit:
+                        break
+        if len(urls) > 1:
+            self.log(f"自动发现 {len(urls)} 个分页链接。")
+        return urls or [start_url]
 
     def preview_pagination(
         self,
