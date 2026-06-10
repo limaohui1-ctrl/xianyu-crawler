@@ -103,6 +103,7 @@ def run_universal_self_test():
         "simple_schedule_button",
         "simple_retry_button",
         "simple_retry_low_quality_button",
+        "simple_retry_report_button",
         "simple_real_check_button",
         "simple_depth_combo",
         "simple_column_card_label",
@@ -134,6 +135,10 @@ def run_universal_self_test():
     ):
         if not hasattr(window, attr_name):
             raise AssertionError(f"普通人一键采集面板缺少控件：{attr_name}")
+    if window.simple_export_retry_report():
+        raise AssertionError("普通人首页不应在没有重抓效果时导出空报告")
+    if "重抓效果报告" not in getattr(window, "last_simple_message", ("", ""))[1]:
+        raise AssertionError("普通人首页空重抓报告导出未给出明确提示")
     if window.tabs.currentWidget().objectName() != "simpleWorkbench":
         raise AssertionError("普通人首页未使用采集工作台页面结构")
     if window.simple_input_box.title() != "采集任务" or window.simple_main_splitter.orientation() != Qt.Orientation.Horizontal:
@@ -433,6 +438,37 @@ def run_universal_self_test():
     retry_report_text = window.simple_retry_report_label.text()
     if "重抓效果" not in retry_report_text or "+" not in retry_report_text or "补到" not in retry_report_text:
         raise AssertionError(f"低完整度重抓效果摘要不完整：{retry_report_text}")
+    retry_columns, retry_rows = window.retry_report_table_data()
+    for expected_header in ("网址", "重抓前完整度", "重抓后完整度", "提升分数", "补到资料", "仍缺资料"):
+        if expected_header not in retry_columns:
+            raise AssertionError(f"低完整度重抓报告导出列缺失：{retry_columns}")
+    if not retry_rows or "https://example.com/weak" not in "\t".join(str(value) for value in retry_rows[0]):
+        raise AssertionError(f"低完整度重抓报告导出行缺失：{retry_rows}")
+    if not window.simple_export_retry_report():
+        raise AssertionError("低完整度重抓报告导出失败")
+    retry_export_path = getattr(window, "last_simple_retry_report_export_path", "")
+    if not os.path.exists(retry_export_path) or not retry_export_path.endswith(".xlsx"):
+        raise AssertionError("低完整度重抓报告未保存为 Excel")
+    from openpyxl import load_workbook as load_retry_report_workbook
+
+    retry_report_workbook = load_retry_report_workbook(retry_export_path)
+    if retry_report_workbook.sheetnames[0] != "重抓效果报告":
+        raise AssertionError("低完整度重抓报告 Excel 工作表名称错误")
+    retry_report_sheet = retry_report_workbook["重抓效果报告"]
+    retry_saved_headers = [
+        retry_report_sheet.cell(1, column).value
+        for column in range(1, retry_report_sheet.max_column + 1)
+    ]
+    for expected_header in ("网址", "重抓前完整度", "重抓后完整度", "提升分数", "补到资料"):
+        if expected_header not in retry_saved_headers:
+            raise AssertionError(f"低完整度重抓报告 Excel 缺少列：{retry_saved_headers}")
+    retry_saved_row = "\t".join(
+        str(retry_report_sheet.cell(2, column).value or "")
+        for column in range(1, retry_report_sheet.max_column + 1)
+    )
+    for expected_value in ("https://example.com/weak", "图片", "价格"):
+        if expected_value not in retry_saved_row:
+            raise AssertionError(f"低完整度重抓报告 Excel 缺少值：{expected_value} / {retry_saved_row}")
     window.simple_merge_subpage_results = False
     window.set_simple_flow_step("导出")
     window.simple_ai_field_rules = []

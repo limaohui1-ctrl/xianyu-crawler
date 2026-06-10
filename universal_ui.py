@@ -1011,6 +1011,42 @@ class UniversalMainWindow(QMainWindow):
         if hasattr(self, "simple_retry_report_label"):
             self.simple_retry_report_label.setText(self.retry_report_summary_text())
 
+    def retry_report_table_data(self):
+        columns = ["网址", "标题", "重抓前完整度", "重抓后完整度", "提升分数", "补到资料", "仍缺资料"]
+        rows = []
+        for row in getattr(self, "low_quality_retry_report_rows", []) or []:
+            rows.append(
+                [
+                    row.get("url", ""),
+                    row.get("title", ""),
+                    row.get("before", 0),
+                    row.get("after", 0),
+                    row.get("delta", 0),
+                    row.get("captured", ""),
+                    row.get("still_missing", ""),
+                ]
+            )
+        return columns, rows
+
+    def simple_export_retry_report(self):
+        columns, rows = self.retry_report_table_data()
+        if not rows:
+            self.simple_information("提示", "还没有重抓效果报告。请先使用“重抓低完整度”。")
+            return False
+        file_path = self.simple_export_filename("重抓效果报告")
+        try:
+            export_table_data(file_path, columns, rows, sheet_name="重抓效果报告")
+        except Exception as exc:
+            QMessageBox.warning(self, "保存失败", str(exc))
+            return False
+        self.simple_progress_label.setText(f"已导出重抓效果报告：{file_path}")
+        self.simple_status_label.setText("重抓效果报告已保存为 Excel")
+        self.last_simple_retry_report_export_path = file_path
+        self.last_simple_export_path = file_path
+        self.refresh_simple_recent_area()
+        self.simple_information("保存成功", f"已保存：\n{file_path}")
+        return True
+
     def update_low_quality_retry_report(self, record):
         if not getattr(self, "low_quality_retry_active", False):
             return
@@ -1102,6 +1138,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_stop_button.setEnabled(False)
         self.simple_ai_suggest_button = QPushButton("AI 建议列")
         self.simple_export_button = QPushButton("自动保存")
+        self.simple_retry_report_button = QPushButton("导出重抓报告")
         self.simple_copy_button = QPushButton("复制表格")
         self.simple_contact_button = QPushButton("提取邮箱电话")
         self.simple_image_button = QPushButton("下载图片")
@@ -1119,6 +1156,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_stop_button.clicked.connect(self.stop_collecting)
         self.simple_ai_suggest_button.clicked.connect(self.simple_suggest_columns_now)
         self.simple_export_button.clicked.connect(self.simple_auto_save_results)
+        self.simple_retry_report_button.clicked.connect(self.simple_export_retry_report)
         self.simple_copy_button.clicked.connect(self.copy_current_results_to_sheets)
         self.simple_contact_button.clicked.connect(self.simple_extract_contacts)
         self.simple_image_button.clicked.connect(self.simple_download_images)
@@ -1138,6 +1176,7 @@ class UniversalMainWindow(QMainWindow):
         quick_actions = QHBoxLayout()
         quick_actions.addWidget(self.simple_copy_button)
         quick_actions.addWidget(self.simple_image_button)
+        quick_actions.addWidget(self.simple_retry_report_button)
         quick_actions.addStretch(1)
         input_layout.addLayout(quick_actions, 3, 1, 1, 4)
         layout.addWidget(input_box)
