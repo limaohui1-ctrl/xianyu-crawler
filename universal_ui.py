@@ -1208,6 +1208,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_retry_report_label.setObjectName("simpleSummaryText")
         self.simple_retry_report_label.setWordWrap(True)
         status_layout.addWidget(self.simple_retry_report_label)
+
+        self.simple_diagnosis_label = QLabel("诊断建议：等待结果")
+        self.simple_diagnosis_label.setObjectName("simpleSummaryText")
+        self.simple_diagnosis_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_diagnosis_label)
         layout.addWidget(status_box)
 
         self.simple_ai_box = QGroupBox("AI 设置")
@@ -1938,9 +1943,104 @@ class UniversalMainWindow(QMainWindow):
         average = int(sum(scores) / len(scores)) if scores else 0
         return f"结果：共 {len(self.records)} 条，平均完整度 {average}%，" + "，".join(parts)
 
+    def crawl_diagnosis_for_record(self, record):
+        self.ensure_record_completeness(record)
+        missing = set(record.get("completeness_missing", []) or [])
+        score = int(record.get("completeness_score") or 0)
+        body_text = compact_text(record.get("body", ""), 2000)
+        error_text = compact_text(record.get("error", ""), 500)
+        link_count = len(record.get("links", []) or [])
+        image_count = len(record.get("images", []) or [])
+        table_count = len(record.get("tables", []) or [])
+        if error_text:
+            lower_error = error_text.lower()
+            if any(token in lower_error for token in ("403", "401", "captcha", "验证码", "登录", "forbidden", "access denied")):
+                return {
+                    "reason": "反爬或权限限制",
+                    "advice": "改用真实浏览器、保持登录，并加大延迟后重试。",
+                    "severity": "需处理",
+                }
+            return {
+                "reason": "请求失败",
+                "advice": "查看错误列，降低速度或稍后重试。",
+                "severity": "需处理",
+            }
+        if score >= 85:
+            return {"reason": "资料较完整", "advice": "可以直接导出或加入监控。", "severity": "正常"}
+        if len(body_text) < 40 and image_count == 0 and table_count == 0:
+            return {
+                "reason": "疑似动态加载",
+                "advice": "使用完整模式重抓，增加滚动次数和等待时间。",
+                "severity": "需处理",
+            }
+        if missing.intersection({"图片", "价格", "表格/规格"}) and link_count:
+            return {
+                "reason": "详情页可能未展开",
+                "advice": "使用“重抓低完整度”让完整模式补详情页、图片和规格。",
+                "severity": "需处理",
+            }
+        if body_text and len(missing) >= 3:
+            return {
+                "reason": "字段规则可能不匹配",
+                "advice": "点击 AI 建议列或到 AI 抓取工作台修复字段规则。",
+                "severity": "需确认",
+            }
+        return {
+            "reason": "页面资料偏少",
+            "advice": "抽查原网页；若网页本身信息少，可接受低完整度或减少字段要求。",
+            "severity": "需确认",
+        }
+
+    def simple_crawl_diagnosis_rows(self, records=None):
+        rows = []
+        for record in list(records if records is not None else getattr(self, "records", [])):
+            if not isinstance(record, dict):
+                continue
+            diagnosis = self.crawl_diagnosis_for_record(record)
+            rows.append(
+                {
+                    "url": normalize_url(record.get("url", "")),
+                    "title": record.get("title") or "(无标题)",
+                    "score": int(record.get("completeness_score") or 0),
+                    "missing": "、".join(record.get("completeness_missing", []) or []),
+                    **diagnosis,
+                }
+            )
+        return rows
+
+    def simple_crawl_diagnosis_text(self):
+        rows = self.simple_crawl_diagnosis_rows()
+        if not rows:
+            return "诊断建议：等待结果"
+        weak_rows = [row for row in rows if int(row.get("score") or 0) < 60 or row.get("severity") != "正常"]
+        if not weak_rows:
+            return f"诊断建议：{len(rows)} 条资料较完整，可以导出或加入监控"
+        reason_counts = {}
+        reason_severity = {}
+        severity_rank = {"需处理": 2, "需确认": 1, "正常": 0}
+        for row in weak_rows:
+            reason = row.get("reason", "页面资料偏少")
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            reason_severity[reason] = max(
+                reason_severity.get(reason, 0),
+                severity_rank.get(row.get("severity", "需确认"), 1),
+            )
+        top_reason, top_count = sorted(
+            reason_counts.items(),
+            key=lambda item: (reason_severity.get(item[0], 0), item[1]),
+            reverse=True,
+        )[0]
+        top_row = next((row for row in weak_rows if row.get("reason") == top_reason), weak_rows[0])
+        return f"诊断建议：{len(weak_rows)} 条需处理；主要是{top_reason} {top_count} 条。建议：{top_row.get('advice', '')}"
+
+    def refresh_simple_crawl_diagnosis(self):
+        if hasattr(self, "simple_diagnosis_label"):
+            self.simple_diagnosis_label.setText(self.simple_crawl_diagnosis_text())
+
     def refresh_simple_result_summary(self):
         if hasattr(self, "simple_result_summary_label"):
             self.simple_result_summary_label.setText(self.simple_result_summary_text())
+        self.refresh_simple_crawl_diagnosis()
 
     def selected_simple_record(self):
         if not hasattr(self, "simple_result_table"):

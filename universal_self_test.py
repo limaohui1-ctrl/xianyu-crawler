@@ -115,6 +115,7 @@ def run_universal_self_test():
         "simple_result_table",
         "simple_result_summary_label",
         "simple_retry_report_label",
+        "simple_diagnosis_label",
         "simple_step_labels",
         "simple_recent_files_table",
         "simple_recent_records_table",
@@ -302,6 +303,8 @@ def run_universal_self_test():
         raise AssertionError("普通人结果表未在状态提示中展示缺项")
     if "共 1 条" not in window.simple_result_summary_label.text() or "平均完整度" not in window.simple_result_summary_label.text():
         raise AssertionError("普通人面板未显示结果摘要")
+    if "诊断建议" not in window.simple_diagnosis_label.text():
+        raise AssertionError("普通人面板未显示采集诊断建议")
     if "Example Domain" not in window.simple_preview_title_label.text():
         raise AssertionError("普通人结果预览未展示标题")
     if "示例正文" not in window.simple_preview_body_output.toPlainText():
@@ -384,6 +387,51 @@ def run_universal_self_test():
     low_quality_urls = window.low_quality_urls()
     if "https://example.com/weak" not in low_quality_urls:
         raise AssertionError(f"低完整度筛选未发现弱结果：{low_quality_urls}")
+    weak_diagnosis = next(
+        (row for row in window.simple_crawl_diagnosis_rows() if row.get("url") == "https://example.com/weak"),
+        {},
+    )
+    if weak_diagnosis.get("reason") != "疑似动态加载" or "完整模式" not in weak_diagnosis.get("advice", ""):
+        raise AssertionError(f"低完整度动态加载诊断不正确：{weak_diagnosis}")
+    if "诊断建议" not in window.simple_diagnosis_label.text() or "动态加载" not in window.simple_diagnosis_label.text():
+        raise AssertionError(f"普通首页诊断摘要未指出主要原因：{window.simple_diagnosis_label.text()}")
+    blocked_diagnosis = window.crawl_diagnosis_for_record(
+        {
+            "url": "https://example.com/blocked",
+            "title": "",
+            "body": "",
+            "images": [],
+            "links": [],
+            "tables": [],
+            "error": "403 验证码拦截",
+        }
+    )
+    if blocked_diagnosis.get("reason") != "反爬或权限限制" or "真实浏览器" not in blocked_diagnosis.get("advice", ""):
+        raise AssertionError(f"反爬/权限诊断不正确：{blocked_diagnosis}")
+    detail_diagnosis = window.crawl_diagnosis_for_record(
+        {
+            "url": "https://example.com/list-item",
+            "title": "列表项",
+            "body": "这是列表页摘要内容，正文已经足够长，但图片、价格和规格可能藏在同站详情页里，需要继续展开详情。",
+            "images": [],
+            "links": [{"text": "详情", "url": "https://example.com/detail"}],
+            "tables": [],
+        }
+    )
+    if detail_diagnosis.get("reason") != "详情页可能未展开" or "重抓低完整度" not in detail_diagnosis.get("advice", ""):
+        raise AssertionError(f"详情页未展开诊断不正确：{detail_diagnosis}")
+    field_rule_diagnosis = window.crawl_diagnosis_for_record(
+        {
+            "url": "https://example.com/custom",
+            "title": "字段规则页",
+            "body": "页面正文已经抓到很多文字内容，说明网页可以访问，但用户需要的价格、作者、时间、图片等结构化字段没有被当前规则提取出来。",
+            "images": [],
+            "links": [],
+            "tables": [],
+        }
+    )
+    if field_rule_diagnosis.get("reason") != "字段规则可能不匹配" or "AI 建议列" not in field_rule_diagnosis.get("advice", ""):
+        raise AssertionError(f"字段规则诊断不正确：{field_rule_diagnosis}")
     low_quality_queue = window.low_quality_retry_queue()
     weak_queue_row = next((row for row in low_quality_queue if row.get("url") == "https://example.com/weak"), {})
     if not weak_queue_row or "低完整度页" not in weak_queue_row.get("title", "") or not weak_queue_row.get("missing"):
