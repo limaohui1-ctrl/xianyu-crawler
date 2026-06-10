@@ -564,6 +564,7 @@ class UniversalMainWindow(QMainWindow):
         self.low_quality_retry_baseline = {}
         self.low_quality_retry_active = False
         self.low_quality_retry_report_rows = []
+        self.latest_crawl_discovery_messages = []
         self.last_real_scrape_check_result = {}
         self.current_run_id = None
         self.current_run_start_count = 0
@@ -1222,6 +1223,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_sample_verify_label.setObjectName("simpleSummaryText")
         self.simple_sample_verify_label.setWordWrap(True)
         status_layout.addWidget(self.simple_sample_verify_label)
+
+        self.simple_discovery_label = QLabel("发现记录：等待采集")
+        self.simple_discovery_label.setObjectName("simpleSummaryText")
+        self.simple_discovery_label.setWordWrap(True)
+        status_layout.addWidget(self.simple_discovery_label)
         layout.addWidget(status_box)
 
         self.simple_ai_box = QGroupBox("AI 设置")
@@ -3216,12 +3222,25 @@ class UniversalMainWindow(QMainWindow):
                 item.setToolTip(f"{status}｜{record.get('completeness_label', '')}\n{self.simple_missing_hint(record)}")
 
     def append_log(self, message):
+        self.record_crawl_discovery_message(message)
         if hasattr(self, "log_output"):
             self.log_output.append(message)
         if hasattr(self, "simple_status_label"):
             self.simple_status_label.setText(str(message))
         if hasattr(self, "ai_output"):
             self.ai_output.appendPlainText(str(message))
+
+    def record_crawl_discovery_message(self, message):
+        text = str(message or "")
+        if not text.startswith(("自动翻页候选", "自动发现", "子页面发现", "发现 ")):
+            return
+        if "自动翻页" not in text and "分页" not in text and "子页面" not in text:
+            return
+        messages = list(getattr(self, "latest_crawl_discovery_messages", []) or [])
+        messages.append(compact_text(text, 220))
+        self.latest_crawl_discovery_messages = messages[-4:]
+        if hasattr(self, "simple_discovery_label"):
+            self.simple_discovery_label.setText("发现记录：" + " ｜ ".join(self.latest_crawl_discovery_messages))
 
     def append_ai_output(self, message):
         self.ai_output.appendPlainText(str(message))
@@ -6489,7 +6508,10 @@ class UniversalMainWindow(QMainWindow):
         self.low_quality_retry_baseline = {}
         self.low_quality_retry_active = False
         self.low_quality_retry_report_rows = []
+        self.latest_crawl_discovery_messages = []
         self.refresh_low_quality_retry_report_summary()
+        if hasattr(self, "simple_discovery_label"):
+            self.simple_discovery_label.setText("发现记录：等待采集")
         self.set_simple_flow_step("输入")
         self.refresh_simple_result_summary()
         self.refresh_result_status_summary()

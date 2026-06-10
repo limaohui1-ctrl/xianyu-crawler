@@ -119,6 +119,7 @@ def run_universal_self_test():
         "simple_retry_report_label",
         "simple_diagnosis_label",
         "simple_sample_verify_label",
+        "simple_discovery_label",
         "simple_step_labels",
         "simple_recent_files_table",
         "simple_recent_records_table",
@@ -3098,7 +3099,8 @@ def run_universal_self_test():
     site_thread.start()
     try:
         site_base = f"http://127.0.0.1:{site_server.server_address[1]}/"
-        collector = UniversalCollector(logger=lambda message: None)
+        discovery_logs = []
+        collector = UniversalCollector(logger=lambda message: discovery_logs.append(message))
         candidates = collector.scan_subpage_links(site_base, use_browser=False, limit=20)
         if not candidates or not any("product/10001" in item.get("url", "") for item in candidates):
             raise AssertionError("子页面链接扫描未发现详情候选")
@@ -3195,6 +3197,14 @@ def run_universal_self_test():
             raise AssertionError(f"自动深抓未覆盖分页里的商品详情：{ranked_urls}")
         if any("/help" in item for item in ranked_urls):
             raise AssertionError(f"自动深抓错误抓取了帮助/导航页：{ranked_urls}")
+        joined_discovery_logs = "\n".join(discovery_logs)
+        for expected_log in ("自动翻页候选", "自动发现", "子页面发现", "排除示例"):
+            if expected_log not in joined_discovery_logs:
+                raise AssertionError(f"采集发现日志缺少 {expected_log}：{joined_discovery_logs}")
+        window.record_crawl_discovery_message("自动翻页候选：http://example.com 发现 2 个，示例=http://example.com/page2")
+        window.record_crawl_discovery_message("子页面发现：候选 4 个，选中 2 个，选中=商品页:http://example.com/p/1，排除示例=导航页:http://example.com/help")
+        if "自动翻页候选" not in window.simple_discovery_label.text() or "子页面发现" not in window.simple_discovery_label.text():
+            raise AssertionError(f"普通首页未展示采集发现记录：{window.simple_discovery_label.text()}")
         fallback_logs = []
         fallback_collector = UniversalCollector(logger=lambda message: fallback_logs.append(message))
         fallback_collector.fetch_with_playwright = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("browser unavailable"))

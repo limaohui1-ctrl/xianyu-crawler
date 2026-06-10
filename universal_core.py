@@ -3509,20 +3509,36 @@ class UniversalCollector:
     def subpage_urls_from_record(self, record, parent_url, limit, visited):
         urls = []
         candidates = self.rank_subpage_links(record.get("links", []) or [], parent_url, limit=max(limit * 3, limit, 20))
+        selected_debug = []
+        rejected_debug = []
         for candidate in candidates:
             if not candidate.get("selected"):
+                if len(rejected_debug) < 5:
+                    rejected_debug.append(f"{candidate.get('type', '')}:{candidate.get('url', '')}")
                 continue
             link_url = normalize_url(candidate.get("url", ""), parent_url)
             if not link_url or link_url in visited:
+                if len(rejected_debug) < 5 and link_url:
+                    rejected_debug.append(f"已访问:{link_url}")
                 continue
             if url_domain(link_url) != url_domain(parent_url):
+                if len(rejected_debug) < 5:
+                    rejected_debug.append(f"站外:{link_url}")
                 continue
             if any(token in link_url.lower() for token in ("#", "javascript:", "mailto:", "tel:")):
+                if len(rejected_debug) < 5:
+                    rejected_debug.append(f"无效:{link_url}")
                 continue
             urls.append(link_url)
+            if len(selected_debug) < 8:
+                selected_debug.append(f"{candidate.get('type', '')}:{link_url}")
             visited.add(link_url)
             if len(urls) >= limit:
                 break
+        self.log(
+            f"子页面发现：候选 {len(candidates)} 个，选中 {len(urls)} 个，"
+            f"选中={'; '.join(selected_debug) or '无'}，排除示例={'; '.join(rejected_debug) or '无'}"
+        )
         if urls:
             self.log(f"发现 {len(urls)} 个子页面，开始深度采集。")
         return urls
@@ -3843,7 +3859,7 @@ class UniversalCollector:
                 continue
             candidates.append({"url": href, "score": score, "text": text})
         candidates.sort(key=lambda item: (-int(item.get("score", 0)), item.get("url", "")))
-        return [item.get("url", "") for item in candidates]
+        return candidates
 
     def expand_pages_by_links(self, url, use_browser=True, page_limit=DEFAULT_PAGE_LIMIT, keep_login_state=False):
         start_url = normalize_url(url)
@@ -3869,13 +3885,20 @@ class UniversalCollector:
             except Exception as exc:
                 self.log(f"自动翻页读取失败：{current_url} | {exc}")
                 continue
-            for candidate_url in self.pagination_candidate_urls(html, current_url, start_url):
+            candidates = self.pagination_candidate_urls(html, current_url, start_url)
+            if candidates:
+                self.log(
+                    f"自动翻页候选：{current_url} 发现 {len(candidates)} 个，"
+                    f"示例={'; '.join(item.get('url', '') for item in candidates[:5])}"
+                )
+            for candidate in candidates:
+                candidate_url = candidate.get("url", "")
                 if candidate_url not in seen and candidate_url not in queue:
                     queue.append(candidate_url)
                     if len(queue) + len(urls) >= page_limit:
                         break
         if len(urls) > 1:
-            self.log(f"自动发现 {len(urls)} 个分页链接。")
+            self.log(f"自动发现 {len(urls)} 个分页链接：{'; '.join(urls[:8])}")
         return urls or [start_url]
 
     def preview_pagination(
