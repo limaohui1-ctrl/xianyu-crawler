@@ -289,6 +289,10 @@ def run_universal_self_test():
         raise AssertionError("普通人面板未展示采集内容摘要")
     if "%" not in window.simple_result_table.item(0, 5).text():
         raise AssertionError("普通人结果表未展示资料完整度")
+    if not isinstance(window.simple_result_table.cellWidget(0, 5), QProgressBar):
+        raise AssertionError("普通人结果表完整度未使用进度条展示")
+    if "缺少" not in window.simple_result_table.item(0, 0).toolTip():
+        raise AssertionError("普通人结果表未在状态提示中展示缺项")
     if "共 1 条" not in window.simple_result_summary_label.text() or "平均完整度" not in window.simple_result_summary_label.text():
         raise AssertionError("普通人面板未显示结果摘要")
     if "Example Domain" not in window.simple_preview_title_label.text():
@@ -350,6 +354,26 @@ def run_universal_self_test():
         raise AssertionError("普通首页按要求整理表未展示合并后的详情资料")
     if not window.records[0].get("completeness_score") or "完整度" not in window.simple_preview_counts_label.text():
         raise AssertionError("普通首页详情合并后未刷新资料完整度")
+    window.simple_merge_subpage_results = False
+    window.add_record(
+        {
+            "collected_at": "2026-06-09 10:42:00",
+            "url": "https://example.com/weak",
+            "domain": "example.com",
+            "template_name": "通用自动识别",
+            "title": "低完整度页",
+            "body": "",
+            "images": [],
+            "links": [],
+            "tables": [],
+            "fingerprint": "weak",
+        }
+    )
+    low_row = window.simple_result_table.rowCount() - 1
+    if not isinstance(window.simple_result_table.cellWidget(low_row, 5), QProgressBar):
+        raise AssertionError("低完整度结果未展示完整度条")
+    if "缺少" not in window.simple_result_table.item(low_row, 1).toolTip():
+        raise AssertionError("低完整度结果标题未提示缺少资料")
     window.simple_merge_subpage_results = False
     window.simple_ai_field_rules = []
     fallback_headers = [

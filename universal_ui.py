@@ -2457,9 +2457,59 @@ class UniversalMainWindow(QMainWindow):
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(5, 138)
         table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         return table
+
+    def completeness_score_color(self, score):
+        score = int(score or 0)
+        if score >= 85:
+            return "#16a34a"
+        if score >= 60:
+            return "#d97706"
+        return "#dc2626"
+
+    def completeness_bar_widget(self, record):
+        self.ensure_record_completeness(record)
+        score = max(0, min(100, int(record.get("completeness_score") or 0)))
+        label = record.get("completeness_label") or f"{score}%"
+        missing = "、".join(record.get("completeness_missing", []) or [])
+        progress = QProgressBar()
+        progress.setRange(0, 100)
+        progress.setValue(score)
+        progress.setFormat(label)
+        progress.setTextVisible(True)
+        color = self.completeness_score_color(score)
+        progress.setToolTip(f"{label}" + (f"\n缺少：{missing}" if missing else "\n资料较完整"))
+        progress.setStyleSheet(
+            f"""
+            QProgressBar {{
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background: #f8fafc;
+                text-align: center;
+                color: #111827;
+                font-weight: 600;
+                min-height: 18px;
+            }}
+            QProgressBar::chunk {{
+                background: {color};
+                border-radius: 3px;
+            }}
+            """
+        )
+        return progress
+
+    def simple_missing_hint(self, record):
+        self.ensure_record_completeness(record)
+        missing = record.get("completeness_missing", []) or []
+        if not missing:
+            return "资料较完整"
+        hint = "缺少：" + "、".join(missing[:4])
+        if len(missing) > 4:
+            hint += f"等 {len(missing)} 项"
+        return hint
 
     def add_record_to_simple_table(self, record, record_index=None):
         if not hasattr(self, "simple_result_table"):
@@ -2484,6 +2534,10 @@ class UniversalMainWindow(QMainWindow):
         for column, value in enumerate(values):
             item = QTableWidgetItem(str(value))
             item.setToolTip(str(value))
+            if column == 1:
+                item.setToolTip(f"{value}\n{self.simple_missing_hint(record)}")
+            if column == 5:
+                item.setToolTip(self.simple_missing_hint(record))
             if column == 0:
                 item.setData(Qt.ItemDataRole.UserRole, "current")
                 item.setData(
@@ -2491,6 +2545,7 @@ class UniversalMainWindow(QMainWindow):
                     record_index if record_index is not None else row,
                 )
             self.simple_result_table.setItem(row, column, item)
+        self.simple_result_table.setCellWidget(row, 5, self.completeness_bar_widget(record))
         self.style_simple_record_row(row, record)
 
     def simple_refresh_result_row(self, row, record, record_index=None):
@@ -2518,9 +2573,14 @@ class UniversalMainWindow(QMainWindow):
                 self.simple_result_table.setItem(row, column, item)
             item.setText(str(value))
             item.setToolTip(str(value))
+            if column == 1:
+                item.setToolTip(f"{value}\n{self.simple_missing_hint(record)}")
+            if column == 5:
+                item.setToolTip(self.simple_missing_hint(record))
             if column == 0:
                 item.setData(Qt.ItemDataRole.UserRole, "current")
                 item.setData(Qt.ItemDataRole.UserRole + 1, record_index if record_index is not None else row)
+        self.simple_result_table.setCellWidget(row, 5, self.completeness_bar_widget(record))
         self.style_simple_record_row(row, record)
 
     def simple_record_link_urls(self, record):
@@ -2581,6 +2641,8 @@ class UniversalMainWindow(QMainWindow):
         if not hasattr(self, "simple_result_table"):
             return
         status = self.record_status_text(record)
+        self.ensure_record_completeness(record)
+        score = int(record.get("completeness_score") or 0)
         palette = {
             "错误": ("#fff1f0", "#a8071a"),
             "变化": ("#fffbe6", "#ad6800"),
@@ -2588,6 +2650,11 @@ class UniversalMainWindow(QMainWindow):
             "新增": ("#f6ffed", "#237804"),
         }
         background, foreground = palette.get(status, ("#ffffff", "#262626"))
+        if status == "新增":
+            if score < 60:
+                background, foreground = ("#fff1f0", "#a8071a")
+            elif score < 85:
+                background, foreground = ("#fffbe6", "#ad6800")
         for column in range(self.simple_result_table.columnCount()):
             item = self.simple_result_table.item(row, column)
             if not item:
@@ -2595,6 +2662,7 @@ class UniversalMainWindow(QMainWindow):
             item.setBackground(QColor(background))
             if column == 0:
                 item.setForeground(QColor(foreground))
+                item.setToolTip(f"{status}｜{record.get('completeness_label', '')}\n{self.simple_missing_hint(record)}")
 
     def append_log(self, message):
         if hasattr(self, "log_output"):
