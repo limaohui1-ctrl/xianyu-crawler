@@ -16,6 +16,7 @@ from core_export import clean_text, now_text
 SECRET_PREFIX = "dpapi:v1:"
 JSONL_TAIL_READ_BYTES = 1024 * 1024
 JSONL_LOCK_BYTES = 1
+MAX_JSONL_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB — auto-rotate when exceeded
 
 
 @contextmanager
@@ -175,6 +176,15 @@ def append_jsonl_entry(file_path, entry):
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(line)
             f.flush()
+    # Auto-rotate when file exceeds size limit (prevents unbounded growth)
+    try:
+        if os.path.exists(file_path) and os.path.getsize(file_path) > MAX_JSONL_SIZE_BYTES:
+            archive_path = f"{file_path}.archive-{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
+            with jsonl_file_lock(file_path):
+                if os.path.exists(file_path) and os.path.getsize(file_path) > MAX_JSONL_SIZE_BYTES:
+                    os.rename(file_path, archive_path)
+    except OSError:
+        pass  # rotation is best-effort; do not block the write on failure
     return payload
 
 

@@ -4,6 +4,40 @@ import traceback
 import json
 import time
 
+if os.name == "nt":
+    import ctypes
+
+    _MUTEX_NAME = "Global\\UniversalWebCollector_SingleInstance_v1"
+    _mutex_handle = None
+
+    def acquire_single_instance_lock():
+        """Return True if this is the first/only instance. False if another is already running."""
+        global _mutex_handle
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        kernel32.GetLastError.restype = ctypes.c_ulong
+        _mutex_handle = kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+        if _mutex_handle and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(_mutex_handle)
+            _mutex_handle = None
+            return False
+        return True
+
+    def release_single_instance_lock():
+        """Release the mutex. Safe to call even if lock wasn't acquired."""
+        global _mutex_handle
+        if _mutex_handle:
+            kernel32 = ctypes.windll.kernel32
+            kernel32.CloseHandle(_mutex_handle)
+            _mutex_handle = None
+else:
+    def acquire_single_instance_lock():
+        return True
+
+    def release_single_instance_lock():
+        pass
+
 
 SELF_TEST_RUNTIME_DIR = "self_test_runtime"
 
@@ -187,6 +221,9 @@ if __name__ == "__main__":
             clear_stale_startup_error(STARTUP_LOG_FILE)
             run_app()
         else:
+            if not acquire_single_instance_lock():
+                print("通用网站采集中心 已在运行。请勿重复启动。", file=sys.stderr)
+                sys.exit(0)
             from universal_core import ensure_runtime_dirs, runtime_startup_log_file
             from universal_ui import run_universal_app
 

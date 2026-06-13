@@ -1,0 +1,10 @@
+# 通用网站采集中心 — 开发/打包依赖
+# 仅在构建发布包时需要，普通用户无需安装
+#
+# 安装: pip install -r requirements.txt -r requirements-dev.txt
+
+# ── EXE 打包 ──
+pyinstaller>=6.0
+
+# ── 旧版闲鱼通知 (可选) ──
+# win10toast>=0.9

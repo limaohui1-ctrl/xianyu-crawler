@@ -898,12 +898,30 @@ def load_change_alert_states(file_path=None):
         with open(file_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
     except Exception as exc:
-        record_recoverable_error(
-            "读取变更提醒状态失败，已使用空状态",
-            exc,
-            details={"file": file_path},
-        )
-        return {}
+        backup_path = f"{file_path}.bak"
+        if os.path.exists(backup_path):
+            try:
+                with open(backup_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                record_recoverable_error(
+                    "变更提醒状态主文件读取失败，已从备份恢复",
+                    exc,
+                    details={"file": file_path, "recovered_from": backup_path},
+                )
+            except Exception as backup_exc:
+                record_recoverable_error(
+                    "读取变更提醒状态失败（主文件和备份均不可用），已使用空状态",
+                    backup_exc,
+                    details={"file": file_path, "backup": backup_path},
+                )
+                return {}
+        else:
+            record_recoverable_error(
+                "读取变更提醒状态失败，已使用空状态",
+                exc,
+                details={"file": file_path},
+            )
+            return {}
     states = payload.get("states", payload) if isinstance(payload, dict) else {}
     if not isinstance(states, dict):
         return {}
@@ -940,6 +958,15 @@ def save_change_alert_states(states, file_path=None):
     temp_path = f"{file_path}.tmp.{os.getpid()}"
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump({"states": clean_states}, f, ensure_ascii=False, indent=2)
+    if os.path.exists(file_path):
+        try:
+            shutil.copy2(file_path, f"{file_path}.bak")
+        except Exception as exc:
+            record_recoverable_error(
+                "备份变更提醒状态失败，已继续保存新状态",
+                exc,
+                details={"file": file_path, "backup": f"{file_path}.bak"},
+            )
     os.replace(temp_path, file_path)
     return clean_states
 
@@ -1700,12 +1727,31 @@ def load_ai_settings(file_path=None):
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as exc:
-        record_recoverable_error(
-            "读取 AI 设置失败，已使用默认设置",
-            exc,
-            details={"file": file_path},
-        )
-        return settings
+        # Try .bak backup before falling back to defaults
+        backup_path = f"{file_path}.bak"
+        if os.path.exists(backup_path):
+            try:
+                with open(backup_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                record_recoverable_error(
+                    "AI 设置主文件读取失败，已从备份恢复",
+                    exc,
+                    details={"file": file_path, "recovered_from": backup_path},
+                )
+            except Exception as backup_exc:
+                record_recoverable_error(
+                    "读取 AI 设置失败（主文件和备份均不可用），已使用默认设置",
+                    backup_exc,
+                    details={"file": file_path, "backup": backup_path},
+                )
+                return settings
+        else:
+            record_recoverable_error(
+                "读取 AI 设置失败，已使用默认设置",
+                exc,
+                details={"file": file_path},
+            )
+            return settings
     data = decrypt_ai_settings_from_disk(data)
     if isinstance(data, dict):
         providers = settings.get("providers", {})
@@ -1775,6 +1821,15 @@ def save_ai_settings(settings, file_path=None):
     disk_payload = encrypt_ai_settings_for_disk(merged)
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(disk_payload, f, ensure_ascii=False, indent=4)
+    if os.path.exists(file_path):
+        try:
+            shutil.copy2(file_path, f"{file_path}.bak")
+        except Exception as exc:
+            record_recoverable_error(
+                "备份 AI 设置失败，已继续保存新设置",
+                exc,
+                details={"file": file_path, "backup": f"{file_path}.bak"},
+            )
     os.replace(temp_path, file_path)
     return merged
 

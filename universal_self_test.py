@@ -482,6 +482,22 @@ def run_universal_self_test():
         raise AssertionError("普通人面板未同步到后台采集/AI 配置")
     if "2 后台采集：进行中" not in window.simple_step_labels[1].text():
         raise AssertionError("普通人面板未进入后台采集步骤")
+    # ── 风险确认弹窗回归测试 ──
+    # Verify confirm_remaining_preflight_risks blocks on cancel and allows on confirm
+    sample_risks = [{"风险": "域名未被识别", "级别": "中", "说明": "example.com 不在已知模板中"}]
+    original_confirm_risks = window.confirm_remaining_preflight_risks
+    # Test 1: user cancels → method should return False (blocked)
+    window.confirm_remaining_preflight_risks = lambda risks: False
+    if window.confirm_remaining_preflight_risks(sample_risks):
+        window.confirm_remaining_preflight_risks = original_confirm_risks
+        raise AssertionError("风险确认取消时应返回 False 阻止采集")
+    # Test 2: user confirms → method should return True (proceed)
+    window.confirm_remaining_preflight_risks = lambda risks: True
+    if not window.confirm_remaining_preflight_risks(sample_risks):
+        window.confirm_remaining_preflight_risks = original_confirm_risks
+        raise AssertionError("风险确认通过时应返回 True 允许采集")
+    window.confirm_remaining_preflight_risks = original_confirm_risks
+    self_test_stage("risk confirmation flow OK")
     direct_starts = []
     original_simple_start_collecting = window.start_collecting
     window._self_test_start_hook = lambda urls, risks: direct_starts.append({"urls": list(urls), "risks": list(risks)})

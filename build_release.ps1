@@ -1,3 +1,4 @@
+#Requires -Version 5.1
 param(
     [string]$OutputRoot = "",
     [string]$DistPath = ""
@@ -5,15 +6,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function TextFromCodes([int[]]$Codes) {
-    return -join ($Codes | ForEach-Object { [char]$_ })
-}
-
-$appName = TextFromCodes @(36890,29992,32593,31449,37319,38598,20013,24515)
-$legacyName = TextFromCodes @(38386,40060,30417,27979,36719,20214)
-$releaseSuffix = TextFromCodes @(21457,24067,21253)
-$readmeName = (TextFromCodes @(20351,29992,35828,26126)) + ".txt"
-$proofName = (TextFromCodes @(21457,24067,35777,26126)) + ".txt"
+# Readable names (replacing former ASCII-code obfuscation)
+$appName = "通用网站采集中心"
+$legacyName = "闲鱼监测软件"
+$releaseSuffix = "发布包"
+$readmeName = "使用说明.txt"
+$proofName = "发布说明.txt"
 $desktopLinkName = "$appName.lnk"
 
 if (-not $OutputRoot) {
@@ -29,6 +27,7 @@ if (Test-Path -LiteralPath $hygieneScript) {
         throw "Repository hygiene check failed. Clean tracked/generated artifacts before packaging."
     }
 }
+
 $distRoot = if ($DistPath) {
     Resolve-Path -LiteralPath $DistPath
 } elseif (Test-Path -LiteralPath (Join-Path $projectRoot "dist\$appName")) {
@@ -38,6 +37,7 @@ $distRoot = if ($DistPath) {
 } else {
     Join-Path $projectRoot "dist\$appName"
 }
+
 if (-not (Test-Path -LiteralPath $distRoot)) {
     throw "Dist folder not found: $distRoot"
 }
@@ -59,55 +59,42 @@ if ($exitCode -ge 8) {
     throw "Copy release package failed, robocopy exit code: $exitCode"
 }
 
-$startTitle = TextFromCodes @(21551,21160,26041,24335)
-$privacyTitle = TextFromCodes @(38544,31169,35828,26126)
-$line1 = (TextFromCodes @(21452,20987)) + " $appName.exe"
-$line2 = (TextFromCodes @(36755,20837,32593,22336,21518,65292,28857,20987)) + " " + (TextFromCodes @(24320,22987,37319,38598))
-$line3 = (TextFromCodes @(38656,35201,21160,24577,32593,39029,26102,65292,20445,25345)) + " Playwright " + (TextFromCodes @(30495,23454,27983,35272,22120,27169,24335))
-$line4 = TextFromCodes @(24314,35758,22312,32,65,73,32,37197,32622,20013,20445,23384,32,65,80,73,32,75,101,121,12289,66,97,115,101,32,85,82,76,32,21644,27169,22411,65307,65,80,73,32,75,101,121,32,20250,20351,29992,32,87,105,110,100,111,119,115,32,26412,26426,29992,25143,21152,23494,20445,23384)
-$privacy1 = TextFromCodes @(21457,24067,21253,19981,21253,21547,21382,21490,37319,38598,24211,12289,27169,26495,24211,12289,27983,35272,22120,30331,24405,24577,21644,35786,26029,26085,24535)
-$privacy2 = (TextFromCodes @(36816,34892,25968,25454,40664,35748,20445,23384,22312)) + " %LOCALAPPDATA%\UniversalWebCollector"
-$privacy3 = TextFromCodes @(35831,21482,37319,38598,20844,24320,21487,35265,25110,20320,26377,26435,38480,35775,38382,30340,20449,24687,65292,36991,20813,37319,38598,38544,31169,25968,25454)
+# Generate user-facing README
 $readmeLines = @(
     $appName,
     "",
-    "${startTitle}:",
-    "1. $line1",
-    "2. $line2",
-    "3. $line3",
-    "4. $line4",
+    "启动方式:",
+    "1. 双击 $appName.exe",
+    "2. 输入网址后，点击 开始采集",
+    "3. 需要动态网页时，保持 使用真实浏览器采集动态网页 勾选",
+    "所有设置在 AI 配置中保存 API Key, Base URL 和模型；API Key 会使用 Windows 本机用户加密保存",
     "",
-    "${privacyTitle}:",
-    "- $privacy1",
-    "- $privacy2",
-    "- $privacy3"
+    "隐私说明:",
+    "- 发布包不包含历史采集库、模板库、浏览器登录态和诊断日志",
+    "- 运行数据默认保存在 %LOCALAPPDATA%\UniversalWebCollector",
+    "- 请只采集您公开或拥有有限访问权限的信息，避免采集隐私数据"
 )
 $readmeLines | Set-Content -LiteralPath (Join-Path $releaseRoot $readmeName) -Encoding UTF8
 
+# Generate proof of build
 $buildTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$proofTitle = TextFromCodes @(21457,24067,35777,26126)
-$proofTime = TextFromCodes @(29983,25104,26102,38388)
-$proofExe = TextFromCodes @(31243,24207,36335,24452)
-$proofSource = TextFromCodes @(26469,28304,30446,24405)
-$proofShortcut = TextFromCodes @(26700,38754,24555,25463,26041,24335)
 $proofLines = @(
-    $proofTitle,
+    "发布说明",
     "",
-    "${proofTime}: $buildTime",
-    "${proofExe}: $releaseExe",
-    "${proofSource}: $distRoot",
-    "${proofShortcut}: OK",
+    "生成时间: $buildTime",
+    "程序路径: $releaseExe",
+    "来源目录: $distRoot",
+    "桌面快捷方式: OK",
     "功能同步: 已包含自然语言全网爬取入口"
 )
 $proofLines | Set-Content -LiteralPath (Join-Path $releaseRoot $proofName) -Encoding UTF8
 
-$launcherPrefix = TextFromCodes @(21551,21160,36890,29992,32593,31449,37319,38598,20013,24515)
-$noConsole = TextFromCodes @(26080,40657,31383)
-$exeEdition = "EXE" + (TextFromCodes @(29256))
+# Copy launchers
+$launcherPrefix = "启动通用网站采集中心"
 $launcherNames = @(
     "$launcherPrefix.bat",
-    "${launcherPrefix}_${noConsole}.vbs",
-    "${launcherPrefix}_${exeEdition}.vbs"
+    "${launcherPrefix}_无黑框.vbs",
+    "${launcherPrefix}_EXE版.vbs"
 )
 foreach ($launcherName in $launcherNames) {
     $launcherPath = Join-Path $projectRoot $launcherName
@@ -116,6 +103,7 @@ foreach ($launcherName in $launcherNames) {
     }
 }
 
+# Create desktop shortcuts
 $shell = New-Object -ComObject WScript.Shell
 $shortcutTargets = @(
     (Join-Path ([Environment]::GetFolderPath("Desktop")) $desktopLinkName),
