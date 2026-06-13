@@ -1,0 +1,226 @@
+"""ACS Web Dashboard — Flask, 127.0.0.1 only."""
+import os, sys, json, time
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PROJ = os.path.dirname(os.path.dirname(_HERE))
+if _PROJ not in sys.path: sys.path.insert(0, _PROJ)
+from flask import Flask, render_template_string, jsonify, request
+from acs.web.auth import require_auth
+
+app = Flask(__name__, template_folder="templates")
+app.secret_key = os.urandom(24).hex()
+
+CSS = "body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0}nav{background:#161b22;padding:12px 20px;border-bottom:1px solid #30363d}nav a{color:#58a6ff;text-decoration:none;margin-right:16px;font-size:14px}main{padding:20px;max-width:1200px;margin:auto}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #30363d;padding:8px 12px;text-align:left;font-size:13px}th{background:#161b22}.card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin:12px 0}.metric{font-size:24px;font-weight:bold;color:#58a6ff}.ok{color:#3fb950}.warn{color:#d29922}.err{color:#f85149}.btn{background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px}.btn:hover{background:#2ea043}.btn-danger{background:#da3633}.btn-danger:hover{background:#f85149}input,select{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:6px 10px;border-radius:4px;font-size:13px}.footer{text-align:center;color:#8b949e;font-size:12px;padding:20px;border-top:1px solid #30363d;margin-top:20px}"
+
+NAV = '<nav><a href="/">Overview</a><a href="/shadow">Shadow</a><a href="/cost">Cost</a><a href="/reviews">Reviews</a><a href="/structure">Structure</a><a href="/audit">Audit</a><a href="/reports">Reports</a></nav>'
+
+FOOTER = '<div class="footer">ACS Dashboard v1.0 | ACS_MODE=shadow | No auto-apply | 127.0.0.1</div>'
+
+BASE_HTML = f"<!DOCTYPE html><html lang=zh><head><meta charset=utf-8><title>ACS Dashboard</title><style>{CSS}</style></head><body>{NAV}<main>{{content}}</main>{FOOTER}</body></html>"
+
+def render_body(body):
+    return render_template_string(BASE_HTML.replace("{content}", body))
+
+# ── Routes ──
+@app.route("/")
+def index(): return render_body(overview_content())
+
+@app.route("/shadow")
+def shadow(): return render_body(shadow_content())
+
+@app.route("/cost")
+def cost_page(): return render_body(cost_content())
+
+@app.route("/reviews")
+def reviews(): return render_body(reviews_content())
+
+@app.route("/structure")
+def structure(): return render_body(structure_content())
+
+@app.route("/audit")
+def audit(): return render_body(audit_content())
+
+@app.route("/reports")
+def reports(): return render_body(reports_content())
+
+# ── API ──
+@app.route("/api/overview")
+def api_overview(): return jsonify(get_overview_data())
+
+ACTION_MGR = None
+def get_am():
+    global ACTION_MGR
+    if ACTION_MGR is None:
+        from acs.web.safe_actions import SafeActionManager
+        ACTION_MGR = SafeActionManager()
+    return ACTION_MGR
+
+def _review_action(action):
+    data = request.get_json() or {}
+    rid = data.get("review_id", 0)
+    note = data.get("note", "")
+    am = get_am()
+    if action == "approve": return jsonify(am.approve(rid, note))
+    if action == "reject": return jsonify(am.reject(rid, note))
+    if action == "needs_more_data": return jsonify(am.needs_more_data(rid, note))
+    if action == "archive": return jsonify(am.archive(rid))
+    return jsonify({"error": "unknown action"}), 400
+
+@app.route("/api/reviews/approve", methods=["POST"])
+@require_auth
+def api_approve(): return _review_action("approve")
+
+@app.route("/api/reviews/reject", methods=["POST"])
+@require_auth
+def api_reject(): return _review_action("reject")
+
+@app.route("/api/reviews/needs_more_data", methods=["POST"])
+@require_auth
+def api_needs_more(): return _review_action("needs_more_data")
+
+@app.route("/api/reviews/archive", methods=["POST"])
+@require_auth
+def api_archive(): return _review_action("archive")
+
+@app.route("/api/export/<fmt>")
+def api_export(fmt):
+    from acs.dashboard.cli_dashboard import CLIDashboard
+    dash = CLIDashboard(review_store=get_review_store(), structure_store=get_struct_store())
+    result = dash.export(fmt=fmt)
+    if fmt == "json": return jsonify(json.loads(result))
+    return f"<pre>{result}</pre>"
+
+# ── Content helpers ──
+def overview_content():
+    d = get_overview_data()
+    s = d.get("shadow", {}); c = d.get("cost", {}); r = d.get("reviews", {})
+    al = d.get("alerts", [])
+    ah = ""
+    for a in al:
+        cls = "err" if a.get("severity") == "high" else "warn"
+        ah += f'<div class="card"><span class="{cls}">[{a.get("severity","info").upper()}]</span> {a.get("message","")}</div>'
+    return f"""<h1>ACS Dashboard Overview</h1>{ah}
+<div class="card"><div class="metric">{s.get("total_shadow",0)}</div>Shadow entries<br><small>Success: {s.get("success_rate",0):.1%}</small></div>
+<div class="card"><div class="metric">{c.get("total_calls",0)}</div>AI calls<br><small>Cost: ${c.get("total_cost",0):.6f}</small></div>
+<div class="card"><div class="metric">{r.get("pending",0)}</div>Pending reviews<br><small>Done: {r.get("approved",0)}</small></div>
+<div class="card"><div class="metric">{d.get("errors",0)}</div>Errors</div>
+<div class="card"><b>Safety:</b> ACS_MODE={d.get("acs_mode","shadow")} | Auto-apply={d.get("auto_apply",False)}</div>"""
+
+def shadow_content():
+    from acs.dashboard.shadow_view import ShadowView
+    v = ShadowView(shadow_stats=get_shadow_data())
+    return v.markdown().replace("\n","<br>")
+
+def cost_content():
+    from acs.dashboard.cost_view import CostView
+    return CostView().markdown().replace("\n","<br>")
+
+def reviews_content():
+    from acs.dashboard.review_queue_view import ReviewQueueView
+    store = get_review_store()
+    if not store: return "<h1>Reviews</h1><p>No review store configured.</p>"
+    v = ReviewQueueView(store)
+    pending = v.get_pending(limit=50)
+    rows = ""
+    for p in pending:
+        rid = p.get("id","")
+        rows += f'<tr><td>{rid}</td><td>{p.get("field_name","")}</td><td>{p.get("old_selector","")}</td><td>{p.get("candidate_selector","")}</td><td>{p.get("confidence",0):.2f}</td><td><button class="btn" onclick="act({rid},&apos;approve&apos;)">Approve</button> <button class="btn btn-danger" onclick="act({rid},&apos;reject&apos;)">Reject</button></td></tr>'
+    return f"""<h1>Review Queue</h1><table><tr><th>ID</th><th>Field</th><th>Old</th><th>New</th><th>Conf</th><th>Action</th></tr>{rows}</table>
+<script>function act(id,action){{var note=prompt('Note:');fetch('/api/reviews/'+action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{review_id:id,note:note||''}})}}).then(r=>r.json()).then(d=>{{alert(JSON.stringify(d));location.reload()}})}}</script>"""
+
+def structure_content():
+    store = get_struct_store()
+    if not store: return "<h1>Structure</h1><p>No store.</p>"
+    from acs.dashboard.structure_view import StructureView
+    return StructureView(store).markdown().replace("\n","<br>")
+
+def audit_content():
+    from acs.observability.ai_call_audit import AICallAuditor
+    au = AICallAuditor("logs/ai_call_audit.jsonl")
+    entries = au.read_logs(limit=50)
+    rows = ""
+    for e in entries:
+        cls = "ok" if e.get("success") else "err"
+        tok = e.get("tokens_prompt",0)+e.get("tokens_completion",0)
+        rows += f'<tr><td>{e.get("timestamp","")}</td><td>{e.get("url","")[:50]}</td><td>{tok}</td><td class="{cls}">{e.get("success")}</td><td>{e.get("error","")[:60]}</td></tr>'
+    return f"<h1>AI Call Audit</h1><table><tr><th>Time</th><th>URL</th><th>Tokens</th><th>Status</th><th>Error</th></tr>{rows}</table>"
+
+def reports_content():
+    return """<h1>Reports</h1>
+<div class="card"><h3>Export</h3><a href="/api/export/markdown" class="btn">Markdown</a> <a href="/api/export/json" class="btn">JSON</a></div>
+<div class="card"><h3>Daily Report</h3><code>python -m acs.ops.daily_report</code></div>
+<div class="card"><h3>Weekly Report</h3><code>python -m acs.ops.weekly_report</code></div>"""
+
+# ── Data singletons ──
+_RVS = None
+def get_review_store():
+    global _RVS
+    if _RVS is None:
+        try:
+            from acs.storage.repair_review_store import RepairReviewStore
+            _RVS = RepairReviewStore("acs_data/reviews.db")
+        except: pass
+    return _RVS
+
+_SS = None
+def get_struct_store():
+    global _SS
+    if _SS is None:
+        try:
+            from acs.storage.structure_history_store import StructureHistoryStore
+            _SS = StructureHistoryStore("acs_data/structure_history.db")
+        except: pass
+    return _SS
+
+def get_shadow_data():
+    try:
+        from acs.observability.shadow_analyzer import ShadowAnalyzer
+        sa = ShadowAnalyzer("acs_shadow_logs/acs_shadow.jsonl")
+        return sa.analyze().to_dict()
+    except: return {}
+
+def get_overview_data():
+    shadow = get_shadow_data()
+    cost = {}
+    try:
+        from acs.observability.ai_call_audit import AICallAuditor
+        cost = AICallAuditor("logs/ai_call_audit.jsonl").get_stats()
+    except: pass
+    reviews = {"pending":0, "approved":0}
+    try:
+        store = get_review_store()
+        if store:
+            s = store.get_stats()
+            by = s.get("by_status", {})
+            reviews = {"pending": by.get("pending_review",0), "approved": by.get("approved",0)}
+    except: pass
+    from acs.ops.alert_rules import AlertEngine
+    engine = AlertEngine()
+    alerts = engine.check({
+        "ai_fail_rate": cost.get("failed_calls",0)/max(cost.get("total_calls",1),1),
+        "cost_ratio": cost.get("estimated_cost",0)/0.5,
+        "shadow_success_rate": shadow.get("acs_success_rate",1),
+        "pending_reviews": reviews.get("pending",0),
+    })
+    return {
+        "shadow": {"total_shadow": shadow.get("total_entries",0), "success_rate": shadow.get("acs_success_rate",0)},
+        "cost": {"total_calls": cost.get("total_calls",0), "total_cost": cost.get("estimated_cost",0)},
+        "reviews": reviews,
+        "alerts": [a.to_dict() for a in alerts],
+        "errors": cost.get("failed_calls",0),
+        "acs_mode": "shadow",
+        "auto_apply": False,
+    }
+
+def main():
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8050)
+    p.add_argument("--debug", action="store_true")
+    args = p.parse_args()
+    print(f"ACS Dashboard: http://{args.host}:{args.port}")
+    print("ACS_MODE=shadow | No auto-apply | 127.0.0.1 only")
+    app.run(host=args.host, port=args.port, debug=args.debug)
+
+if __name__ == "__main__":
+    main()

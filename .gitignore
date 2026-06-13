@@ -46,3 +46,4 @@ risk_confirmations.json
 *.lnk
 ui_snapshot*.png
 logs/
+acs_shadow_logs/

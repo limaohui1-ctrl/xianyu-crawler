@@ -28,7 +28,9 @@ def main():
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--html", default="")
     parser.add_argument("--max-ai-calls", type=int, default=1)
+    parser.add_argument("--force-ai-fallback", type=str, default="false")
     args = parser.parse_args()
+    force_ai = args.force_ai_fallback.lower() in ("true", "1", "yes")
 
     # Ensure ACS_MODE=shadow
     os.environ.setdefault("ACS_MODE", "shadow")
@@ -92,7 +94,9 @@ def main():
                 missing_critical_fields=["title", "price"],
             )
 
-            if decision.should_invoke:
+            if decision.should_invoke or force_ai:
+                if force_ai and not decision.should_invoke:
+                    results["ai_parser"]["forced"] = True
                 ai_result = parser_obj.parse(args.url, html,
                                              missing_fields=["title", "price"])
                 results["ai_parser"] = {
