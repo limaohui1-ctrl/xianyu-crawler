@@ -25,25 +25,26 @@ def test_load_entries(shadow_dir):
     assert len(entries) == 5
 
 def test_evaluate_with_data(shadow_dir):
-    rs = evaluate_from_shadow(shadow_log_path=shadow_dir)
+    rs, _ = evaluate_from_shadow(shadow_log_path=shadow_dir)
     assert rs.sample_count == 5
     assert rs.level in ("INSUFFICIENT_DATA", "NOT_READY", "BLOCKED", "READY")
     # success_rate may be 0 if evaluate_from_shadow hits audit log issues
     assert isinstance(rs.success_rate, float)
 
 def test_evaluate_empty():
-    rs = evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl")
+    rs, _ = evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl")
     assert rs.sample_count == 0
     assert rs.level == "INSUFFICIENT_DATA"
 
 def test_summary_output():
-    rs = evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl")
+    rs, _ = evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl")
     s = summary(rs)
     assert "recommendation" in s
     assert "level" in s
     assert s["recommendation"] in ("INSUFFICIENT_DATA", "KEEP_SHADOW")
 
 def test_summary_no_api_key():
-    s = summary(evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl"))
+    rs, _ = evaluate_from_shadow(shadow_log_path="/nonexistent/path.jsonl")
+    s = summary(rs)
     j = json.dumps(s)
     assert "sk-" not in j

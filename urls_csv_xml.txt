@@ -1,0 +1,7 @@
+https://raw.githubusercontent.com/tidyverse/ggplot2/main/data-raw/msleep.csv
+https://raw.githubusercontent.com/datasets/gdp/master/data/gdp.csv
+https://www.w3.org/robots.txt
+https://www.gutenberg.org/files/1342/1342-0.txt
+https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml
+https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml
+https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson

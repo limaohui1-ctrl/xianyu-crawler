@@ -68,8 +68,8 @@ class SiteReadinessReport:
 
 def generate_site_report(site_id: str = "default", site_name: str = "Default Site",
                          shadow_log: str = None, audit_log: str = None) -> SiteReadinessReport:
-    rs = evaluate_from_shadow(shadow_log, audit_log)
-    sm = summary(rs)
+    rs, extra = evaluate_from_shadow(shadow_log, audit_log)
+    sm = summary(rs, extra)
     classifier = RiskClassifier()
     classifier.classify(rs, site_id)
     return SiteReadinessReport(

@@ -255,8 +255,8 @@ def get_chart_data():
 def evaluation_content():
     from acs.evaluation.on_mode_readiness import evaluate_from_shadow, summary
     from acs.evaluation.risk_classifier import RiskClassifier
-    rs = evaluate_from_shadow()
-    sm = summary(rs)
+    rs, extra = evaluate_from_shadow()
+    sm = summary(rs, extra)
     rc = RiskClassifier()
     rc.classify(rs, "default")
     blocks = rc.blocking_reasons()

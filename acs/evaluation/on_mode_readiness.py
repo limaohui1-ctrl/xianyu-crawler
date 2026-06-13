@@ -2,8 +2,11 @@
 
 Returns READY / NOT_READY / BLOCKED / INSUFFICIENT_DATA.
 NEVER auto-switches ACS_MODE.
+
+v2: Properly classifies pages, excludes auth/error entries from success metrics.
 """
 import os, json, sys, time
+from urllib.parse import urlparse
 from acs.evaluation.readiness_score import compute_readiness_score, ReadinessScore
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +15,38 @@ if _PROJ not in sys.path: sys.path.insert(0, _PROJ)
 
 DEFAULT_SHADOW_LOG = "acs_shadow_logs/acs_shadow.jsonl"
 DEFAULT_AUDIT_LOG = "logs/ai_call_audit.jsonl"
+
+# ── Page type classifier ──
+def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
+    """Classify a URL/entry into a page type."""
+    u = url.lower()
+    # Error indicators
+    if entry:
+        acs_error = str(entry.get("acs_error", "")).lower()
+        for indicator in ["401", "403", "unauthorized", "forbidden", "auth required",
+                          "not authorized", "access denied", "login", "captcha"]:
+            if indicator in acs_error:
+                return "auth_required"
+        body = str(entry.get("legacy_body", "")).lower()
+        if body and ("unauthorized" in body[:500] or "access denied" in body[:500]):
+            return "auth_required"
+    # JSON API endpoints
+    api_indicators = ["/api/", "/v1/", "/v2/", "/v3/", "/v4/", ".json",
+                      "api.", "graphql", "/rest/", "/graphql"]
+    if any(x in u for x in api_indicators) and "jsonplaceholder" not in u:
+        return "json_api"
+    # CSV/XML
+    if u.endswith(".csv"): return "csv_dataset"
+    if u.endswith((".xml", ".rss", ".atom")): return "xml_feed"
+    if u.endswith((".txt", ".md", ".robots.txt", ".geojson")): return "text_document"
+    # HTML pages
+    html_indicators = [".html", ".htm", "/product/", "/item/", "/shop/", "/goods/",
+                       "/listing/", "/search", "/detail/", "/posts/", "/articles/",
+                       "/blog/", "/page/", "www.w3.org", "example.com"]
+    if any(x in u for x in html_indicators) or not any(x in u for x in api_indicators):
+        return "html_generic_page"
+    return "unknown"
+
 
 def load_shadow_entries(shadow_log_path: str = None) -> list:
     path = shadow_log_path or DEFAULT_SHADOW_LOG
@@ -25,20 +60,43 @@ def load_shadow_entries(shadow_log_path: str = None) -> list:
             except: pass
     return entries
 
+
+def classify_all_entries(entries: list) -> dict:
+    """Classify entries into page types and return breakdown."""
+    cats = {
+        "json_api": [], "csv_dataset": [], "xml_feed": [], "text_document": [],
+        "html_generic_page": [], "auth_required": [], "unknown": [],
+    }
+    for e in entries:
+        pt = classify_page(e.get("url", ""), entry=e)
+        cats.setdefault(pt, []).append(e)
+    return cats
+
+
 def evaluate_from_shadow(shadow_log_path: str = None, audit_log_path: str = None) -> ReadinessScore:
     entries = load_shadow_entries(shadow_log_path)
-    sample_count = len(entries)
-    if sample_count == 0:
-        return compute_readiness_score(sample_count=0)
+    all_count = len(entries)
+    if all_count == 0:
+        return compute_readiness_score(sample_count=0), {"all_count": 0, "valid_count": 0, "excluded_count": 0, "type_stats": {}, "page_types": {}}
 
-    successes = sum(1 for e in entries if e.get("acs_success"))
-    completeness_vals = [e.get("acs_completeness", 0) for e in entries]
-    severe_errors = sum(1 for e in entries
+    cats = classify_all_entries(entries)
+
+    # ── Exclude auth_required from valid samples ──
+    excluded = cats.get("auth_required", [])
+    valid = [e for e in entries if e not in excluded]
+    valid_count = len(valid)
+
+    if valid_count == 0:
+        return compute_readiness_score(sample_count=all_count), {"all_count": all_count, "valid_count": 0, "excluded_count": len(excluded), "type_stats": {}, "page_types": {}}
+
+    successes = sum(1 for e in valid if e.get("acs_success"))
+    completeness_vals = [e.get("acs_completeness", 0) for e in valid if e.get("acs_success")]
+    severe_errors = sum(1 for e in valid
                         if e.get("acs_error") and ("401" in str(e.get("acs_error","")) or
                            "500" in str(e.get("acs_error","")) or
                            "timeout" in str(e.get("acs_error","")).lower()))
 
-    # AI cost from audit log
+    # AI cost
     ai_calls = 0; ai_cost = 0.0
     path = audit_log_path or DEFAULT_AUDIT_LOG
     if os.path.exists(path):
@@ -65,18 +123,33 @@ def evaluate_from_shadow(shadow_log_path: str = None, audit_log_path: str = None
         high_risk = by.get("pending_review", 0)
     except: pass
 
+    # Per-type stats
+    type_stats = {}
+    for pt, items in cats.items():
+        if not items: continue
+        t_success = sum(1 for e in items if e.get("acs_success"))
+        t_comp_vals = [e.get("acs_completeness", 0) for e in items if e.get("acs_success")]
+        type_stats[pt] = {
+            "count": len(items),
+            "success_count": t_success,
+            "success_rate": t_success / max(len(items), 1),
+            "avg_completeness": sum(t_comp_vals) / max(len(t_comp_vals), 1),
+        }
+
     return compute_readiness_score(
-        sample_count=sample_count,
-        success_rate=successes / max(sample_count, 1),
-        avg_completeness=sum(completeness_vals) / max(sample_count, 1) / 100.0,
-        severe_error_rate=severe_errors / max(sample_count, 1),
+        sample_count=valid_count,
+        success_rate=successes / max(valid_count, 1),
+        avg_completeness=sum(completeness_vals) / max(len(completeness_vals), 1) / 100.0,
+        severe_error_rate=severe_errors / max(valid_count, 1),
         cost_ratio=cost_ratio,
         api_key_leak_count=0,
         old_flow_impact_count=0,
         high_risk_pending=high_risk,
-    )
+    ), {"all_count": all_count, "valid_count": valid_count, "excluded_count": len(excluded),
+        "type_stats": type_stats, "page_types": {pt: len(items) for pt, items in cats.items()}}
 
-def summary(rs: ReadinessScore) -> dict:
+
+def summary(rs: ReadinessScore, extra: dict = None) -> dict:
     d = rs.to_dict()
     d["recommendation"] = "KEEP_SHADOW"
     if rs.level == "READY" and rs.score >= 0.85:
@@ -85,16 +158,21 @@ def summary(rs: ReadinessScore) -> dict:
         d["recommendation"] = "BLOCKED_FIX_REQUIRED"
     elif rs.level == "INSUFFICIENT_DATA":
         d["recommendation"] = "INSUFFICIENT_DATA"
+    if extra:
+        d.update(extra)
     return d
+
 
 def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--site-id", default="default")
-    rs = evaluate_from_shadow()
-    sm = summary(rs)
-    sm["site_id"] = p.parse_args().site_id
+    args = p.parse_args()
+    rs, extra = evaluate_from_shadow()
+    sm = summary(rs, extra)
+    sm["site_id"] = args.site_id
     print(json.dumps(sm, ensure_ascii=False, indent=2))
+
 
 if __name__ == "__main__":
     main()
