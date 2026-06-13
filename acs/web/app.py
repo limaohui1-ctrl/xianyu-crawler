@@ -11,7 +11,7 @@ app.secret_key = os.urandom(24).hex()
 
 CSS = "body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0}nav{background:#161b22;padding:12px 20px;border-bottom:1px solid #30363d}nav a{color:#58a6ff;text-decoration:none;margin-right:16px;font-size:14px}main{padding:20px;max-width:1200px;margin:auto}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #30363d;padding:8px 12px;text-align:left;font-size:13px}th{background:#161b22}.card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin:12px 0}.metric{font-size:24px;font-weight:bold;color:#58a6ff}.ok{color:#3fb950}.warn{color:#d29922}.err{color:#f85149}.btn{background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px}.btn:hover{background:#2ea043}.btn-danger{background:#da3633}.btn-danger:hover{background:#f85149}input,select{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:6px 10px;border-radius:4px;font-size:13px}.footer{text-align:center;color:#8b949e;font-size:12px;padding:20px;border-top:1px solid #30363d;margin-top:20px}"
 
-NAV = '<nav><a href="/">Overview</a><a href="/shadow">Shadow</a><a href="/cost">Cost</a><a href="/reviews">Reviews</a><a href="/structure">Structure</a><a href="/audit">Audit</a><a href="/reports">Reports</a></nav>'
+NAV = '<nav><a href="/">Overview</a><a href="/shadow">Shadow</a><a href="/cost">Cost</a><a href="/reviews">Reviews</a><a href="/charts">Charts</a><a href="/structure">Structure</a><a href="/audit">Audit</a><a href="/reports">Reports</a></nav>'
 
 FOOTER = '<div class="footer">ACS Dashboard v1.0 | ACS_MODE=shadow | No auto-apply | 127.0.0.1</div>'
 
@@ -81,6 +81,36 @@ def api_needs_more(): return _review_action("needs_more_data")
 @require_auth
 def api_archive(): return _review_action("archive")
 
+# ── Chart data API routes (readonly) ──
+@app.route("/api/charts/shadow_trend")
+def api_shadow_trend():
+    from acs.web.charts import shadow_trend_data
+    return shadow_trend_data()
+
+@app.route("/api/charts/ai_call_trend")
+def api_ai_call_trend():
+    from acs.web.charts import ai_call_trend_data
+    return ai_call_trend_data()
+
+@app.route("/api/charts/parser_distribution")
+def api_parser_distribution():
+    from acs.web.charts import parser_distribution_data
+    return parser_distribution_data()
+
+@app.route("/api/charts/review_status")
+def api_review_status():
+    from acs.web.charts import review_status_data
+    return review_status_data()
+
+@app.route("/api/charts/structure_trend")
+def api_structure_trend():
+    from acs.web.charts import structure_trend_data
+    return structure_trend_data()
+
+@app.route("/charts")
+def charts_page():
+    return render_body(charts_content())
+
 @app.route("/api/export/<fmt>")
 def api_export(fmt):
     from acs.dashboard.cli_dashboard import CLIDashboard
@@ -143,6 +173,82 @@ def audit_content():
         tok = e.get("tokens_prompt",0)+e.get("tokens_completion",0)
         rows += f'<tr><td>{e.get("timestamp","")}</td><td>{e.get("url","")[:50]}</td><td>{tok}</td><td class="{cls}">{e.get("success")}</td><td>{e.get("error","")[:60]}</td></tr>'
     return f"<h1>AI Call Audit</h1><table><tr><th>Time</th><th>URL</th><th>Tokens</th><th>Status</th><th>Error</th></tr>{rows}</table>"
+
+def charts_content():
+    ch_data = json.dumps(get_chart_data())
+    return f"""<h1>Charts</h1>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<div class="card"><canvas id="c1"></canvas></div>
+<div class="card"><canvas id="c2"></canvas></div>
+<div class="card"><canvas id="c3"></canvas></div>
+<div class="card"><canvas id="c4"></canvas></div>
+<div class="card"><canvas id="c5"></canvas></div>
+<div class="card"><canvas id="c6"></canvas></div>
+</div>
+<script>
+var d=JSON.parse('{ch_data}');
+function mk(id,tp,lb,dat,ylab){{
+  if(!lb||lb.length===0){{document.getElementById(id).parentElement.innerHTML='<p style=text-align:center;color:#8b949e>No data</p>';return;}}
+  new Chart(document.getElementById(id),{{type:tp,data:{{labels:lb,datasets:dat}},options:{{responsive:true,plugins:{{legend:{{position:'bottom',labels:{{color:'#c9d1d9'}}}}}},scales:{{y:{{title:{{display:true,text:ylab||'',color:'#8b949e'}},ticks:{{color:'#8b949e'}}}},x:{{ticks:{{color:'#8b949e',maxRotation:45}}}}}}}}}});
+}}
+mk('c1','line',d.shadow_labels,[{{label:'Success',data:d.shadow_success,borderColor:'#3fb950',tension:0.2}}],'Rate');
+mk('c2','line',d.ai_labels,[{{label:'Tokens',data:d.ai_tokens,borderColor:'#58a6ff',tension:0.2,yAxisID:'y'}},{{label:'Cost ($)',data:d.ai_cost,borderColor:'#d29922',tension:0.2,yAxisID:'y1'}}],'Tokens');
+mk('c3','bar',d.parser_labels,[{{label:'Count',data:d.parser_values,backgroundColor:'#58a6ff'}}],'URLs');
+mk('c4','doughnut',d.review_labels,[{{label:'Reviews',data:d.review_values,backgroundColor:['#238636','#da3633','#d29922','#8b949e','#58a6ff']}}],'');
+mk('c5','line',d.struct_labels,[{{label:'Change Score',data:d.struct_scores,borderColor:'#f85149',tension:0.2}}],'Score');
+mk('c6','bar',d.site_labels,[{{label:'Success Rate',data:d.site_rates,backgroundColor:'#3fb950'}}],'Rate');
+</script>"""
+
+def get_chart_data():
+    shadow = {"labels":[],"success":[]}; ai = {"labels":[],"tokens":[],"cost":[]}
+    parser = {"labels":[],"values":[]}; review = {"labels":[],"values":[]}
+    struct = {"labels":[],"scores":[]}; site = {"labels":[],"rates":[]}
+    try:
+        import json as _j; import os as _os
+        if _os.path.exists("acs_shadow_logs/acs_shadow.jsonl"):
+            with open("acs_shadow_logs/acs_shadow.jsonl",encoding="utf-8") as f:
+                entries=[_j.loads(l) for l in f if l.strip()]
+            shadow["labels"]=[e.get("ts","")[5:16] for e in entries[-30:]]
+            shadow["success"]=[1 if e.get("acs_success") else 0 for e in entries[-30:]]
+            dist={}
+            for e in entries:
+                p=e.get("acs_parser","unknown"); dist[p]=dist.get(p,0)+1
+                u=e.get("url",""); d2=u.split("/")[2] if "/" in u else u[:30]
+                site.setdefault(d2,{"total":0,"ok":0})
+                site[d2]["total"]+=1
+                if e.get("acs_success"): site[d2]["ok"]+=1
+            parser["labels"]=list(dist.keys()); parser["values"]=list(dist.values())
+            for k,v in site.items():
+                site["labels"].append(k); site["rates"].append(v["ok"]/max(v["total"],1))
+        if _os.path.exists("logs/ai_call_audit.jsonl"):
+            with open("logs/ai_call_audit.jsonl",encoding="utf-8") as f:
+                ae=[_j.loads(l) for l in f if l.strip()]
+            ai["labels"]=[e.get("timestamp","")[5:16] for e in ae[-30:]]
+            ai["tokens"]=[e.get("tokens_prompt",0)+e.get("tokens_completion",0) for e in ae[-30:]]
+            ai["cost"]=[e.get("estimated_cost",0) for e in ae[-30:]]
+        try:
+            from acs.storage.repair_review_store import RepairReviewStore
+            rs=RepairReviewStore("acs_data/reviews.db")
+            by=rs.get_stats().get("by_status",{})
+            review["labels"]=list(by.keys()); review["values"]=list(by.values())
+        except: pass
+        try:
+            from acs.storage.structure_history_store import StructureHistoryStore
+            ss=StructureHistoryStore("acs_data/structure_history.db")
+            rows=ss.get_recent("",limit=30)
+            struct["labels"]=[r.get("captured_at","")[5:16] for r in rows]
+            struct["scores"]=[r.get("change_score",0) for r in rows]
+        except: pass
+    except: pass
+    return {
+        "shadow_labels":shadow["labels"],"shadow_success":shadow["success"],
+        "ai_labels":ai["labels"],"ai_tokens":ai["tokens"],"ai_cost":ai["cost"],
+        "parser_labels":parser["labels"],"parser_values":parser["values"],
+        "review_labels":review["labels"],"review_values":review["values"],
+        "struct_labels":struct["labels"],"struct_scores":struct["scores"],
+        "site_labels":site.get("labels",[]),"site_rates":site.get("rates",[]),
+    }
 
 def reports_content():
     return """<h1>Reports</h1>

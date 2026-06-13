@@ -19,10 +19,36 @@ def test_acs_mode_env():
     if old is not None: os.environ["ACS_MODE"] = old
     else: os.environ.pop("ACS_MODE", None)
 
-def test_check_function_registered():
+def test_check_function():
     hc.CHECKS.clear()
-    from acs.ops.health_check import check
-    ok = check("test_check", lambda: (True, "ok"))
+    ok = hc.check("test", lambda: (True, "pass"))
     assert ok is True
     assert len(hc.CHECKS) == 1
-    assert hc.CHECKS[0]["name"] == "test_check"
+    assert hc.CHECKS[0]["name"] == "test"
+    assert hc.CHECKS[0]["status"] == "PASS"
+
+def test_check_fail_function():
+    hc.CHECKS.clear()
+    ok = hc.check("fail", lambda: (False, "bad"))
+    assert ok is False
+    assert hc.CHECKS[0]["status"] == "FAIL"
+
+def test_check_exception():
+    hc.CHECKS.clear()
+    ok = hc.check("ex", lambda: 1/0)
+    assert ok is False
+    assert hc.CHECKS[0]["status"] == "FAIL"
+
+def test_health_run_includes_chart_check():
+    hc.run()
+    names = [c["name"] for c in hc.CHECKS]
+    assert any("Dashboard" in n for n in names)
+    assert any("Chart" in n for n in names)
+    assert any("cron" in n.lower() for n in names)
+
+def test_health_check_has_required_checks():
+    hc.run()
+    names = [c["name"] for c in hc.CHECKS]
+    required = ["ACS_MODE", "Adapter", "Self-test", "Dashboard", "Chart", "SQLite"]
+    for r in required:
+        assert any(r.lower() in n.lower() for n in names), f"Missing check: {r}"

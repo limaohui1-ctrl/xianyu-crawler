@@ -26,6 +26,10 @@ def run():
     check("SQLite: dedup.db", lambda: _check_sqlite("acs_data/dedup.db"))
     check("ACS_MODE=shadow", lambda: (os.environ.get("ACS_MODE","shadow") == "shadow", f"ACS_MODE={os.environ.get('ACS_MODE','shadow')}"))
     check("AI_KEY env only", lambda: _check_api_key_env_only())
+    check("Dashboard /", lambda: _check_dashboard("/"))
+    check("Dashboard /charts", lambda: _check_dashboard("/charts"))
+    check("Chart API shadow", lambda: _check_chart_api())
+    check("Scheduler cron export", lambda: _check_cron_export())
     check("Adapter smoke", lambda: _check_adapter())
     check("Self-test", lambda: _check_selftest())
     passed = sum(1 for c in CHECKS if c["ok"])
@@ -56,6 +60,37 @@ def _check_adapter():
     r = subprocess.run([sys.executable, "-m", "acs.adapter"], capture_output=True, text=True, timeout=30, cwd=_PROJ)
     ok = r.returncode == 0 and '"overall": "pass"' in r.stdout
     return ok, "adapter pass" if ok else r.stderr[:100]
+
+def _check_dashboard(route):
+    try:
+        from acs.web.app import app
+        app.config["TESTING"] = True
+        with app.test_client() as c:
+            rv = c.get(route)
+            return (rv.status_code == 200, f"{route} status={rv.status_code}")
+    except Exception as e:
+        return (False, str(e)[:100])
+
+def _check_chart_api():
+    try:
+        from acs.web.app import app
+        app.config["TESTING"] = True
+        with app.test_client() as c:
+            rv = c.get("/api/charts/shadow_trend")
+            data = rv.get_json()
+            ok = "labels" in data
+            return (ok, f"shadow_trend API {"OK" if ok else "ERROR"}")
+    except Exception as e:
+        return (False, str(e)[:100])
+
+def _check_cron_export():
+    try:
+        from acs.ops.scheduler import export_cron
+        r = export_cron()
+        ok = "daily_cron" in r and "weekly_cron" in r
+        return (ok, f"cron export {"OK" if ok else "ERROR"}")
+    except Exception as e:
+        return (False, str(e)[:100])
 
 def _check_selftest():
     import subprocess

@@ -1,34 +1,61 @@
-"""Tests for scheduler."""
-import sys, os, tempfile, shutil, pytest, json, time
+"""Tests for scheduler — daily, weekly, cron export, Windows task, dry-run."""
+import sys, os, pytest, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from acs.ops.daily_report import DailyReport, generate_daily
-from acs.ops.weekly_report import WeeklyReport, generate_weekly
+from acs.ops.scheduler import generate_and_save, export_cron, export_windows_task, next_run_time
 
-def test_daily_report_generation():
-    r = generate_daily(
-        shadow={"total_entries": 5, "acs_success_rate": 0.8},
-        cost={"total_ai_calls": 2, "total_tokens": 100, "estimated_cost": 0.001},
-        reviews={"by_status": {"pending_review": 1, "approved": 0, "rejected": 0}},
-        audit={"failed_calls": 0}
-    )
-    assert r.shadow_entries == 5
-    assert r.ai_calls == 2
-    assert r.date
+def test_daily_generation():
+    r = generate_and_save("daily")
+    assert r["report_type"] == "daily"
+    assert os.path.exists(r["markdown"])
+    assert os.path.exists(r["json"])
 
-def test_weekly_report_generation():
-    d1 = DailyReport(shadow_entries=10, ai_calls=3, ai_cost=0.01,
-                     errors=1, new_reviews=2, reviews_processed=1, shadow_success_rate=0.8)
-    d2 = DailyReport(shadow_entries=15, ai_calls=5, ai_cost=0.02,
-                     errors=0, new_reviews=1, reviews_processed=2, shadow_success_rate=0.9)
-    r = generate_weekly(dailies=[d1, d2])
-    assert r.total_shadow == 25
-    assert r.total_ai_calls == 8
-    assert r.total_ai_cost == 0.03
+def test_weekly_generation():
+    r = generate_and_save("weekly")
+    assert r["report_type"] == "weekly"
+    assert os.path.exists(r["markdown"])
 
-def test_scheduler_imports():
-    import acs.ops.scheduler
-    assert hasattr(acs.ops.scheduler, "generate_and_save")
+def test_export_cron():
+    r = export_cron()
+    assert "daily_cron" in r
+    assert "weekly_cron" in r
+    assert "daily_command" in r
+    assert "next_daily_run" in r
+    # Verify cron format: minute hour * * * / minute hour * * day
+    import re
+    assert re.match(r"\d+ \d+ \* \* \*", r["daily_cron"])
+    assert re.match(r"\d+ \d+ \* \* \d", r["weekly_cron"])
 
-def test_cron_export_imports():
-    import acs.ops.cron_export
-    assert hasattr(acs.ops.cron_export, "export_all")
+def test_export_cron_custom_time():
+    r = export_cron(daily_time="06:30", weekly_time="10:00", weekly_day="friday")
+    assert r["daily_cron"].startswith("30 6")
+    assert r["weekly_cron"].startswith("0 10")
+    assert r["weekly_crontab"].count("friday") == 0  # uses numeric
+
+def test_export_windows_task():
+    r = export_windows_task()
+    assert "daily_schtasks" in r
+    assert "weekly_schtasks" in r
+    assert "schtasks" in r["daily_schtasks"].lower()
+    assert "schtasks" in r["weekly_schtasks"].lower()
+
+def test_dry_run_daily():
+    # Simulate dry-run via import
+    import acs.ops.scheduler as s
+    r = s.next_run_time(8, 0)
+    assert "T" in r  # ISO format
+
+def test_dry_run_weekly():
+    r = next_run_time(9, 0, weekday=0)
+    assert "T" in r
+
+def test_no_key_leak_in_cron_export():
+    r = export_cron()
+    j = json.dumps(r)
+    assert "sk-" not in j
+    assert "Bearer" not in j
+
+def test_no_key_leak_in_windows_export():
+    r = export_windows_task()
+    j = json.dumps(r)
+    assert "sk-" not in j
+    assert "Bearer" not in j
