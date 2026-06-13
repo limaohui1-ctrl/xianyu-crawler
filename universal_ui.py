@@ -3571,86 +3571,33 @@ class UniversalMainWindow(QMainWindow):
                 item.setForeground(QColor(foreground))
                 item.setToolTip(f"{status}｜{record.get('completeness_label', '')}\n{self.simple_missing_hint(record)}")
 
-    def append_log(self, message):
+    def append_log(self, message, level="INFO"):
+        prefix = ""
+        if level == "WARN":
+            prefix = "[WARN] "
+        elif level == "ERROR":
+            prefix = "[ERROR] "
         self.record_crawl_discovery_message(message)
         if hasattr(self, "log_output"):
-            self.log_output.append(message)
+            self.log_output.append(f"{prefix}{message}")
         if hasattr(self, "simple_status_label"):
             self.simple_status_label.setText(str(message))
         if hasattr(self, "ai_output"):
-            self.ai_output.appendPlainText(str(message))
+            self.ai_output.appendPlainText(f"{prefix}{str(message)}")
+
+    def log_info(self, message):
+        self.append_log(message, "INFO")
+
+    def log_warn(self, message):
+        self.append_log(message, "WARN")
+
+    def log_error(self, message):
+        self.append_log(message, "ERROR")
 
     def copy_all_logs(self):
         if hasattr(self, "log_output"):
             QApplication.clipboard().setText(self.log_output.toPlainText())
             self.append_log("[已复制全部日志到剪贴板]")
-
-    def on_result_table_context_menu(self, pos):
-        table = self.sender()
-        if not isinstance(table, QTableWidget):
-            return
-        row = table.rowAt(pos.y())
-        if row < 0 or row >= table.rowCount():
-            return
-        if not table.selectedIndexes():
-            table.selectRow(row)
-        menu = QTableWidget.createStandardContextMenu(self)
-        menu.addSeparator()
-        copy_row_action = menu.addAction("复制整行")
-        copy_row_action.triggered.connect(lambda: self._copy_selected_table_row(table, row))
-        open_url_action = menu.addAction("打开网址")
-        open_url_action.triggered.connect(lambda: self._open_selected_table_url(table, row))
-        export_selected_action = menu.addAction("导出选中行")
-        export_selected_action.triggered.connect(lambda: self._export_selected_table_rows(table))
-        menu.exec(table.viewport().mapToGlobal(pos))
-
-    def _copy_selected_table_row(self, table, row):
-        values = []
-        for col in range(table.columnCount()):
-            item = table.item(row, col)
-            values.append(item.text() if item else "")
-        QApplication.clipboard().setText("\t".join(values))
-        self.append_log(f"[已复制第 {row + 1} 行到剪贴板]")
-
-    def _open_selected_table_url(self, table, row):
-        url = ""
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if header and header.text() in ("网址", "链接", "url", "URL"):
-                item = table.item(row, col)
-                url = item.text() if item else ""
-                break
-        if not url and table.columnCount() >= 2:
-            item = table.item(row, 1)
-            url = item.text() if item else ""
-        if url and url.startswith(("http://", "https://")):
-            QDesktopServices.openUrl(QUrl(url))
-
-    def _export_selected_table_rows(self, table):
-        selected = set()
-        for index in table.selectedIndexes():
-            selected.add(index.row())
-        if not selected:
-            return
-        columns = []
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            columns.append(header.text() if header else f"列{col + 1}")
-        rows = []
-        for row in sorted(selected):
-            values = []
-            for col in range(table.columnCount()):
-                item = table.item(row, col)
-                values.append(item.text() if item else "")
-            rows.append(values)
-        import csv, tempfile, os
-        fd, path = tempfile.mkstemp(suffix=".csv", prefix="selected_rows_")
-        with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f)
-            writer.writerow(columns)
-            writer.writerows(rows)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
-        self.append_log(f"[已导出 {len(rows)} 行到临时 CSV]")
 
     def record_crawl_discovery_message(self, message):
         text = str(message or "")
@@ -7646,6 +7593,7 @@ import ui_preview_quality
 import ui_quality
 import ui_queue
 import ui_records_memory
+import ui_result_context
 import ui_result_tables
 import ui_run_archive
 import ui_schedules

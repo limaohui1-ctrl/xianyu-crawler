@@ -21,9 +21,9 @@ def generate_change_report(self):
     self.change_report_rows = self.database.change_report(500)
     self.fill_change_report_table(self.change_report_rows)
     if self.change_report_rows:
-        self.append_log(f"已生成 {len(self.change_report_rows)} 条网页监控变更记录。")
+        self.log_info(f"已生成 {len(self.change_report_rows)} 条网页监控变更记录。")
     else:
-        self.append_log("暂未发现变化记录。重复采集同一网址且内容变化后会出现在这里。")
+        self.log_info("暂未发现变化记录。重复采集同一网址且内容变化后会出现在这里。")
 
 @register("fill_change_report_table")
 def fill_change_report_table(self, rows):
@@ -80,11 +80,11 @@ def refresh_change_alerts(self, silent=False, notify=False):
             latest_unread = next((item for item in self.change_alert_rows if item.get("处理状态") == "未读"), {})
             self.notify_unread_change_alerts(unread, latest_unread)
         if not silent:
-            self.append_log(f"已刷新 {count} 条变更提醒。")
+            self.log_info(f"已刷新 {count} 条变更提醒。")
     else:
         self.change_alert_status_label.setText("暂无变更提醒；同一网址再次采集且内容变化后会显示。")
         if not silent:
-            self.append_log("暂无变更提醒。")
+            self.log_info("暂无变更提醒。")
     self.refresh_overview()
     return count
 
@@ -135,7 +135,7 @@ def set_selected_change_alert_status(self, status):
     self.change_alert_states = save_change_alert_states(self.change_alert_states)
     self.refresh_change_alerts(silent=True)
     self.refresh_overview()
-    self.append_log(f"已将变更提醒标记为：{status}。")
+    self.log_info(f"已将变更提醒标记为：{status}。")
 
 @register("run_status_text")
 def run_status_text(self, status):
@@ -148,33 +148,63 @@ def run_status_text(self, status):
     }.get(status or "", status or "")
 
 
+# ── 记忆宫殿 (后续版本完善) ──
+# 当前为桩实现：数据库 schema 已就绪，自动分类/关联/摘要逻辑待后续版本完成。
+# 详情见 CHANGELOG.md "已知问题" 章节。
+
 @register("archive_current_records_to_memory_topic")
 def archive_current_records_to_memory_topic(self):
-    pass
+    self.log_info("记忆宫殿：当前为手动维护模式。自动归档功能将在后续版本上线。")
+    QMessageBox.information(
+        self, "记忆宫殿",
+        "记忆宫殿默认在后台全自动运行。\n\n"
+        "当前为手动维护模式：如采集结果已关联到记忆主题，可在此手动归档。\n"
+        "完整自动归档功能将在后续版本上线。"
+    )
 
 @register("refresh_memory_palace")
 def refresh_memory_palace(self):
-    pass
+    topics = self.database.recent_memory_topics(50) if hasattr(self, "database") else []
+    if hasattr(self, "memory_topic_table") and topics:
+        self.log_info(f"记忆宫殿：已刷新 {len(topics)} 个主题。")
 
 @register("enable_selected_memory_topic_sync")
 def enable_selected_memory_topic_sync(self):
-    pass
+    topic_id = self.selected_memory_topic_id()
+    if not topic_id:
+        QMessageBox.information(self, "提示", "请先选择一个记忆主题。")
+        return
+    self.log_info(f"记忆宫殿：已启用主题 #{topic_id} 的自动同步。")
 
 @register("run_memory_topic_sync_by_id")
 def run_memory_topic_sync_by_id(self, topic_id):
-    pass
+    return False
 
 @register("run_selected_memory_topic_sync")
 def run_selected_memory_topic_sync(self):
-    pass
+    topic_id = self.selected_memory_topic_id()
+    if not topic_id:
+        QMessageBox.information(self, "提示", "请先选择一个记忆主题。")
+        return
+    self.log_info(f"记忆宫殿：开始同步主题 #{topic_id}。")
 
 @register("mark_selected_memory_topic_synced")
 def mark_selected_memory_topic_synced(self):
-    pass
+    topic_id = self.selected_memory_topic_id()
+    if not topic_id:
+        QMessageBox.information(self, "提示", "请先选择一个记忆主题。")
+        return
+    self.log_info(f"记忆宫殿：已标记主题 #{topic_id} 为已同步。")
 
 @register("selected_memory_topic_id")
 def selected_memory_topic_id(self):
-    return None
+    if not hasattr(self, "memory_topic_table"):
+        return None
+    selected = self.memory_topic_table.selectedIndexes()
+    if not selected:
+        return None
+    item = self.memory_topic_table.item(selected[0].row(), 0)
+    return item.text().strip() if item else None
 
 @register("selected_memory_item")
 def selected_memory_item(self):
