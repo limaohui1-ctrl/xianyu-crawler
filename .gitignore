@@ -49,4 +49,4 @@ logs/
 acs_shadow_logs/
 acs_data/
 .env.smoke
-.env
+.envreports/
