@@ -11,7 +11,7 @@ app.secret_key = os.urandom(24).hex()
 
 CSS = "body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0}nav{background:#161b22;padding:12px 20px;border-bottom:1px solid #30363d}nav a{color:#58a6ff;text-decoration:none;margin-right:16px;font-size:14px}main{padding:20px;max-width:1200px;margin:auto}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #30363d;padding:8px 12px;text-align:left;font-size:13px}th{background:#161b22}.card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin:12px 0}.metric{font-size:24px;font-weight:bold;color:#58a6ff}.ok{color:#3fb950}.warn{color:#d29922}.err{color:#f85149}.btn{background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px}.btn:hover{background:#2ea043}.btn-danger{background:#da3633}.btn-danger:hover{background:#f85149}input,select{background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:6px 10px;border-radius:4px;font-size:13px}.footer{text-align:center;color:#8b949e;font-size:12px;padding:20px;border-top:1px solid #30363d;margin-top:20px}"
 
-NAV = '<nav><a href="/">Overview</a><a href="/shadow">Shadow</a><a href="/cost">Cost</a><a href="/reviews">Reviews</a><a href="/charts">Charts</a><a href="/structure">Structure</a><a href="/audit">Audit</a><a href="/reports">Reports</a></nav>'
+NAV = '<nav><a href="/">Overview</a><a href="/shadow">Shadow</a><a href="/cost">Cost</a><a href="/reviews">Reviews</a><a href="/charts">Charts</a><a href="/structure">Structure</a><a href="/audit">Audit</a><a href="/evaluation">Evaluation</a><a href="/reports">Reports</a></nav>'
 
 FOOTER = '<div class="footer">ACS Dashboard v1.0 | ACS_MODE=shadow | No auto-apply | 127.0.0.1</div>'
 
@@ -39,6 +39,8 @@ def structure(): return render_body(structure_content())
 @app.route("/audit")
 def audit(): return render_body(audit_content())
 
+@app.route("/reports")
+def evaluation(): return render_body(evaluation_content())
 @app.route("/reports")
 def reports(): return render_body(reports_content())
 
@@ -249,6 +251,42 @@ def get_chart_data():
         "struct_labels":struct["labels"],"struct_scores":struct["scores"],
         "site_labels":site.get("labels",[]),"site_rates":site.get("rates",[]),
     }
+
+def evaluation_content():
+    from acs.evaluation.on_mode_readiness import evaluate_from_shadow, summary
+    from acs.evaluation.risk_classifier import RiskClassifier
+    rs = evaluate_from_shadow()
+    sm = summary(rs)
+    rc = RiskClassifier()
+    rc.classify(rs, "default")
+    blocks = rc.blocking_reasons()
+    br = "".join(f"<li>{b}</li>" for b in blocks) if blocks else "<li>None</li>"
+    cp = "<p>Canary plan generated. See <code>acs/evaluation/canary_plan.py</code>.</p>"
+    rp = "<p>Rollback plan generated. See <code>acs/evaluation/rollback_plan.py</code>.</p>"
+    ap_gate = "<p>No active canary approvals.</p>"
+    try:
+        from acs.evaluation.manual_approval_gate import ApprovalGate
+        gate = ApprovalGate()
+        latest = gate.get_latest("default")
+        if latest and latest.is_valid():
+            ap_gate = f"<p class=ok>Approved by {latest.reviewer} on {latest.reviewed_at}</p>"
+        elif latest:
+            ap_gate = f"<p class=warn>Latest: {latest.decision} by {latest.reviewer}</p>"
+    except: pass
+    return f"""<h1>On-Mode Readiness Evaluation</h1>
+<div class="card"><h2>Summary</h2>
+<table><tr><td>Samples</td><td>{rs.sample_count}</td></tr>
+<tr><td>Success Rate</td><td>{rs.success_rate:.1%}</td></tr>
+<tr><td>Avg Completeness</td><td>{rs.avg_completeness:.1%}</td></tr>
+<tr><td>Severe Error Rate</td><td>{rs.severe_error_rate:.1%}</td></tr>
+<tr><td>Readiness Score</td><td class="metric">{rs.score:.4f}</td></tr>
+<tr><td>Level</td><td class="{chr(34)}{'ok' if rs.level=='READY' else 'warn' if rs.level=='NOT_READY' else 'err'}{chr(34)}"><b>{rs.level}</b></td></tr>
+<tr><td>Recommendation</td><td><b>{sm.get('recommendation','')}</b></td></tr></table></div>
+<div class="card"><h2>Blocking Reasons</h2><ul>{br}</ul></div>
+<div class="card"><h2>Canary Plan</h2>{cp}</div>
+<div class="card"><h2>Rollback Plan</h2>{rp}</div>
+<div class="card"><h2>Manual Approval Status</h2>{ap_gate}</div>
+<div class="card"><p><b>Safety:</b> ACS_MODE=shadow. No auto-switch. Manual approval required for canary.</p></div>"""
 
 def reports_content():
     return """<h1>Reports</h1>
