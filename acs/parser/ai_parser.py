@@ -176,7 +176,7 @@ class AIParser(BaseParser):
         elapsed = round(time.time() - t0, 3)
 
         # ── Record cost ──
-        tokens = ai_response.get("tokens", {})
+        tokens = getattr(ai_response, 'tokens', {}) or {}
         self.policy.record_ai_call(
             url=url,
             prompt_tokens=tokens.get("prompt", 0),
@@ -190,8 +190,8 @@ class AIParser(BaseParser):
         })
 
         # ── Parse response ──
-        response_text = ai_response.get("text", "")
-        ai_error = ai_response.get("error", "")
+        response_text = getattr(ai_response, "text", "") or ""
+        ai_error = getattr(ai_response, "error", "") or ""
 
         if ai_error and not response_text:
             result.error = f"AI client error: {ai_error}"
@@ -266,7 +266,7 @@ class AIParser(BaseParser):
         )
         elapsed = round(time.time() - t0, 3)
 
-        tokens = ai_response.get("tokens", {})
+        tokens = getattr(ai_response, 'tokens', {}) or {}
         output.cost = {
             "prompt_tokens": tokens.get("prompt", 0),
             "completion_tokens": tokens.get("completion", 0),
@@ -276,9 +276,9 @@ class AIParser(BaseParser):
             "elapsed_seconds": elapsed,
         }
 
-        response_text = ai_response.get("text", "")
-        ai_error = ai_response.get("error", "")
-        output.raw_response = response_text[:5000]
+        response_text = getattr(ai_response, "text", "") or ""
+        ai_error = getattr(ai_response, "error", "") or ""
+        output.raw_response
 
         if ai_error and not response_text:
             output.parse_error = f"AI client error: {ai_error}"

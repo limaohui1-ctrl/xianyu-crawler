@@ -92,8 +92,15 @@ def run_smoke(
 
         # Record to audit + cost report
         meta = getattr(result, 'metadata', {})
-        ai_meta = meta.get("ai_parser", {}) if isinstance(meta, dict) else {}
-        tokens = ai_meta.get("tokens", {})
+        # Convert metadata to dict if it's an object
+        if hasattr(meta, 'to_dict'):
+            meta_dict = meta.to_dict()
+        elif isinstance(meta, dict):
+            meta_dict = meta
+        else:
+            meta_dict = {}
+        ai_meta = meta_dict.get("ai_parser", {}) if isinstance(meta_dict, dict) else {}
+        tokens = ai_meta.get("tokens", {}) if isinstance(ai_meta, dict) else {}
         auditor.log_call(
             call_id=f"smoke_{int(time.time()*1000)}",
             url=url, model=config.model,
