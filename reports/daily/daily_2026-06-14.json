@@ -1,0 +1,12 @@
+{
+  "date": "2026-06-14",
+  "shadow_entries": 26,
+  "shadow_success_rate": 1.0,
+  "ai_calls": 5,
+  "ai_tokens": 1944,
+  "ai_cost": 0.002212,
+  "errors": 1,
+  "new_reviews": 0,
+  "reviews_processed": 0,
+  "alerts": []
+}
