@@ -7427,6 +7427,7 @@ import ui_subpages
 import ui_task_tab
 import ui_template_ops
 import ui_template_tab
+import ui_template_store
 import ui_two_click
 import ui_wizard_plan
 import ui_wizard_runtime
