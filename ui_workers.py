@@ -1,5 +1,7 @@
 """Qt worker classes used by the desktop UI."""
 
+import asyncio
+import os
 import time
 import traceback
 
@@ -22,6 +24,8 @@ from universal_core import (
     refresh_ai_provider_models,
     test_ai_provider_connectivity,
 )
+from core_nl_web_crawler import crawl_from_natural_language
+from ui_export_utils import export_default_dir
 
 
 class CollectWorker(QObject):
@@ -43,7 +47,12 @@ class CollectWorker(QObject):
         scrape_subpages,
         subpage_limit,
         selected_subpage_urls=None,
+        follow_link_content=False,
+        follow_link_limit=0,
+        follow_same_site=True,
+        filter_pdf_media_links=False,
         run_id=0,
+        firecrawl_config=None,
     ):
         super().__init__()
         self.urls = urls
@@ -57,7 +66,12 @@ class CollectWorker(QObject):
         self.scrape_subpages = scrape_subpages
         self.subpage_limit = subpage_limit
         self.selected_subpage_urls = selected_subpage_urls or []
+        self.follow_link_content = bool(follow_link_content)
+        self.follow_link_limit = int(follow_link_limit or 0)
+        self.follow_same_site = bool(follow_same_site)
+        self.filter_pdf_media_links = bool(filter_pdf_media_links)
         self.run_id = int(run_id or 0)
+        self.firecrawl_config = dict(firecrawl_config or {})
         self._stop_requested = False
         self._emitted_record_keys = set()
 
@@ -102,7 +116,8 @@ class CollectWorker(QObject):
 
             def save_and_emit(record, *args, **kwargs):
                 saved_record = original_save_record(record, *args, **kwargs)
-                self.emit_record_once(record)
+                if not saved_record.get("duplicate"):
+                    self.emit_record_once(saved_record)
                 return saved_record
 
             collector.database.save_record = save_and_emit
@@ -121,7 +136,16 @@ class CollectWorker(QObject):
                 stop_requested=self.should_stop,
                 run_id=self.run_id,
                 progress_callback=self.emit_progress,
+                firecrawl_config=self.firecrawl_config,
             )
+            for record in results:
+                if self.follow_link_content and not record.get("follow_link_content"):
+                    record["follow_link_content"] = True
+                    record["follow_link_limit"] = self.follow_link_limit
+                    record["follow_same_site"] = self.follow_same_site
+                    record["filter_pdf_media_links"] = self.filter_pdf_media_links
+                    if not self.filter_pdf_media_links and str(record.get("url", "")).lower().endswith(".pdf"):
+                        record["source_kind"] = "pdf_document"
             total_count = len(results)
             for record in results:
                 if self.emit_record_once(record):
@@ -314,6 +338,23 @@ class AIWorker(QObject):
                 self.payload.get("file_path", ""),
                 self.payload.get("instruction", ""),
                 settings,
+                self.payload.get("firecrawl_config", {}),
+            )
+        if self.action == "natural_language_web_crawl":
+            return asyncio.run(
+                crawl_from_natural_language(
+                    self.payload.get("prompt", ""),
+                    llm_base_url=settings.get("base_url", ""),
+                    llm_api_key=settings.get("api_key", ""),
+                    llm_model=settings.get("model", ""),
+                    search_provider=self.payload.get("search_provider") or settings.get("search_provider") or os.getenv("NL_CRAWLER_SEARCH_PROVIDER") or "serper",
+                    search_api_key=self.payload.get("search_api_key") or settings.get("search_api_key") or os.getenv("NL_CRAWLER_SEARCH_API_KEY") or "",
+                    search_endpoint=self.payload.get("search_endpoint") or settings.get("search_endpoint") or os.getenv("NL_CRAWLER_SEARCH_ENDPOINT") or "",
+                    timeout_seconds=float(self.payload.get("timeout_seconds") or 20.0),
+                    page_timeout_seconds=float(self.payload.get("page_timeout_seconds") or 12.0),
+                    max_search_results=int(self.payload.get("max_search_results") or 5),
+                    demo_mode=bool(self.payload.get("demo_mode", False)),
+                )
             )
         if self.action == "agent":
             return WebAgentExecutor(logger=self.log_signal.emit).execute(

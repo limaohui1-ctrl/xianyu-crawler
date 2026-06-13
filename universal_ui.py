@@ -7349,259 +7349,92 @@ class UniversalMainWindow(QMainWindow):
         )
 
 
-from ui_ai_settings import build_ai_tab as _build_ai_tab
-from ui_history import (
-    build_history_detail_panel as _build_history_detail_panel,
-    build_history_tab as _build_history_tab,
-    build_run_detail_panel as _build_run_detail_panel,
-)
-from ui_exports import (
-    copy_current_results_to_sheets as _copy_current_results_to_sheets,
-    copy_history_results_to_sheets as _copy_history_results_to_sheets,
-    copy_records_to_sheets as _copy_records_to_sheets,
-    export_change_alerts as _export_change_alerts,
-    export_change_alerts_to_file as _export_change_alerts_to_file,
-    export_change_report as _export_change_report,
-    export_current_results as _export_current_results,
-    export_history_results as _export_history_results,
-    export_records_dialog as _export_records_dialog,
-    export_run_records as _export_run_records,
-    export_selected_run_results as _export_selected_run_results,
-)
-from ui_queue import (
-    apply_task_queue_filters as _apply_task_queue_filters,
-    copy_selected_queue_error as _copy_selected_queue_error,
-    enable_browser_recovery as _enable_browser_recovery,
-    estimate_current_task as _estimate_current_task,
-    estimated_task_queue as _estimated_task_queue,
-    fill_queue_snapshot_table as _fill_queue_snapshot_table,
-    fill_task_queue_table as _fill_task_queue_table,
-    filtered_task_queue_rows as _filtered_task_queue_rows,
-    has_timeout_queue_failure as _has_timeout_queue_failure,
-    incomplete_queue_urls as _incomplete_queue_urls,
-    persist_current_run_queue_snapshot as _persist_current_run_queue_snapshot,
-    queue_record_summary as _queue_record_summary,
-    queue_status_counts as _queue_status_counts,
-    refresh_failure_recovery_panel as _refresh_failure_recovery_panel,
-    retry_incomplete_queue_items as _retry_incomplete_queue_items,
-    retry_selected_queue_item as _retry_selected_queue_item,
-    select_record_by_url as _select_record_by_url,
-    selected_queue_error_text as _selected_queue_error_text,
-    selected_queue_row_data as _selected_queue_row_data,
-    selected_queue_url as _selected_queue_url,
-    slow_down_recovery as _slow_down_recovery,
-    task_queue_snapshot as _task_queue_snapshot,
-    update_collect_progress as _update_collect_progress,
-    update_queue_detail_panel as _update_queue_detail_panel,
-    update_queue_result_summary_for_record as _update_queue_result_summary_for_record,
-    update_queue_summary as _update_queue_summary,
-    update_task_queue_progress as _update_task_queue_progress,
-    view_selected_queue_result as _view_selected_queue_result,
-)
-from ui_ai_history import (
-    ai_call_log_table_data as _ai_call_log_table_data,
-    ai_call_summary_table_data as _ai_call_summary_table_data,
-    ai_repair_history_table_data as _ai_repair_history_table_data,
-    apply_ai_repair_history_entry as _apply_ai_repair_history_entry,
-    apply_best_ai_repair_history as _apply_best_ai_repair_history,
-    apply_repair_history_fields as _apply_repair_history_fields,
-    apply_selected_ai_repair_fields as _apply_selected_ai_repair_fields,
-    apply_selected_ai_repair_history as _apply_selected_ai_repair_history,
-    build_repair_history_diff_rows as _build_repair_history_diff_rows,
-    clear_ai_call_logs_and_refresh as _clear_ai_call_logs_and_refresh,
-    compare_ai_repair_history_entry as _compare_ai_repair_history_entry,
-    compare_selected_ai_repair_history as _compare_selected_ai_repair_history,
-    confirm_clear_ai_call_logs as _confirm_clear_ai_call_logs,
-    export_ai_call_logs as _export_ai_call_logs,
-    export_ai_call_logs_to_file as _export_ai_call_logs_to_file,
-    export_ai_call_summary as _export_ai_call_summary,
-    export_ai_call_summary_to_file as _export_ai_call_summary_to_file,
-    export_ai_repair_history as _export_ai_repair_history,
-    export_ai_repair_history_to_file as _export_ai_repair_history_to_file,
-    field_rules_from_history_entry as _field_rules_from_history_entry,
-    fill_ai_call_log_table as _fill_ai_call_log_table,
-    fill_ai_call_summary_table as _fill_ai_call_summary_table,
-    fill_repair_history_diff_table as _fill_repair_history_diff_table,
-    refresh_ai_call_logs as _refresh_ai_call_logs,
-    refresh_ai_call_summary as _refresh_ai_call_summary,
-    refresh_ai_repair_history as _refresh_ai_repair_history,
-    repair_field_rule_signature as _repair_field_rule_signature,
-    repair_history_score as _repair_history_score,
-    selected_ai_repair_history_entry as _selected_ai_repair_history_entry,
-    selected_repair_diff_fields as _selected_repair_diff_fields,
-)
-from ui_export_utils import selected_export_path
+    def set_workspace_mode(self, expert_enabled):
+        if not hasattr(self, 'expert_tab_names'):
+            return
+        for index in range(self.tabs.count()):
+            tab_text = self.tabs.tabText(index)
+            if tab_text == "一键采集":
+                self.tabs.setTabVisible(index, True)
+            elif tab_text in self.expert_tab_names:
+                self.tabs.setTabVisible(index, expert_enabled)
+        if hasattr(self, 'nav_buttons'):
+            for name in ('AI 抓取工作台', '批量采集', '模板库', '历史与监控', '监控概览'):
+                btn = self.nav_buttons.get(name)
+                if btn:
+                    btn.setVisible(expert_enabled)
+        if hasattr(self, 'hero_mode_label'):
+            self.hero_mode_label.setText("模式：高级工作区" if expert_enabled else "模式：普通工作区")
+        if not expert_enabled:
+            self.show_main_tab("一键采集")
 
+    def show_natural_language_workspace(self):
+        if hasattr(self, 'expert_tab_names') and not any(self.tabs.isTabVisible(i) for i in range(self.tabs.count()) if self.tabs.tabText(i) in self.expert_tab_names):
+            self.set_workspace_mode(True)
+        self.show_main_tab("AI 抓取工作台")
 
-UniversalMainWindow.build_ai_tab = _build_ai_tab
-UniversalMainWindow.build_history_tab = _build_history_tab
-UniversalMainWindow.build_history_detail_panel = _build_history_detail_panel
-UniversalMainWindow.build_run_detail_panel = _build_run_detail_panel
-UniversalMainWindow.export_current_results = _export_current_results
-UniversalMainWindow.copy_records_to_sheets = _copy_records_to_sheets
-UniversalMainWindow.copy_current_results_to_sheets = _copy_current_results_to_sheets
-UniversalMainWindow.export_history_results = _export_history_results
-UniversalMainWindow.copy_history_results_to_sheets = _copy_history_results_to_sheets
-UniversalMainWindow.export_change_alerts_to_file = _export_change_alerts_to_file
-UniversalMainWindow.export_change_report = _export_change_report
-UniversalMainWindow.export_change_alerts = _export_change_alerts
-UniversalMainWindow.export_run_records = _export_run_records
-UniversalMainWindow.export_selected_run_results = _export_selected_run_results
-UniversalMainWindow.export_records_dialog = _export_records_dialog
-UniversalMainWindow.task_queue_snapshot = _task_queue_snapshot
-UniversalMainWindow.persist_current_run_queue_snapshot = _persist_current_run_queue_snapshot
-UniversalMainWindow.estimated_task_queue = _estimated_task_queue
-UniversalMainWindow.filtered_task_queue_rows = _filtered_task_queue_rows
-UniversalMainWindow.apply_task_queue_filters = _apply_task_queue_filters
-UniversalMainWindow.queue_status_counts = _queue_status_counts
-UniversalMainWindow.update_queue_summary = _update_queue_summary
-UniversalMainWindow.refresh_failure_recovery_panel = _refresh_failure_recovery_panel
-UniversalMainWindow.enable_browser_recovery = _enable_browser_recovery
-UniversalMainWindow.slow_down_recovery = _slow_down_recovery
-UniversalMainWindow.selected_queue_row_data = _selected_queue_row_data
-UniversalMainWindow.update_queue_detail_panel = _update_queue_detail_panel
-UniversalMainWindow.fill_queue_snapshot_table = _fill_queue_snapshot_table
-UniversalMainWindow.fill_task_queue_table = _fill_task_queue_table
-UniversalMainWindow.queue_record_summary = _queue_record_summary
-UniversalMainWindow.update_queue_result_summary_for_record = _update_queue_result_summary_for_record
-UniversalMainWindow.select_record_by_url = _select_record_by_url
-UniversalMainWindow.selected_queue_url = _selected_queue_url
-UniversalMainWindow.selected_queue_error_text = _selected_queue_error_text
-UniversalMainWindow.view_selected_queue_result = _view_selected_queue_result
-UniversalMainWindow.retry_selected_queue_item = _retry_selected_queue_item
-UniversalMainWindow.copy_selected_queue_error = _copy_selected_queue_error
-UniversalMainWindow.incomplete_queue_urls = _incomplete_queue_urls
-UniversalMainWindow.has_timeout_queue_failure = _has_timeout_queue_failure
-UniversalMainWindow.retry_incomplete_queue_items = _retry_incomplete_queue_items
-UniversalMainWindow.estimate_current_task = _estimate_current_task
-UniversalMainWindow.update_collect_progress = _update_collect_progress
-UniversalMainWindow.update_task_queue_progress = _update_task_queue_progress
-UniversalMainWindow.refresh_ai_call_logs = _refresh_ai_call_logs
-UniversalMainWindow.fill_ai_call_log_table = _fill_ai_call_log_table
-UniversalMainWindow.refresh_ai_call_summary = _refresh_ai_call_summary
-UniversalMainWindow.fill_ai_call_summary_table = _fill_ai_call_summary_table
-UniversalMainWindow.ai_call_log_table_data = _ai_call_log_table_data
-UniversalMainWindow.export_ai_call_logs_to_file = _export_ai_call_logs_to_file
-UniversalMainWindow.ai_call_summary_table_data = _ai_call_summary_table_data
-UniversalMainWindow.export_ai_call_summary_to_file = _export_ai_call_summary_to_file
-UniversalMainWindow.ai_repair_history_table_data = _ai_repair_history_table_data
-UniversalMainWindow.refresh_ai_repair_history = _refresh_ai_repair_history
-UniversalMainWindow.repair_history_score = _repair_history_score
-UniversalMainWindow.selected_ai_repair_history_entry = _selected_ai_repair_history_entry
-UniversalMainWindow.field_rules_from_history_entry = _field_rules_from_history_entry
-UniversalMainWindow.repair_field_rule_signature = _repair_field_rule_signature
-UniversalMainWindow.build_repair_history_diff_rows = _build_repair_history_diff_rows
-UniversalMainWindow.fill_repair_history_diff_table = _fill_repair_history_diff_table
-UniversalMainWindow.compare_ai_repair_history_entry = _compare_ai_repair_history_entry
-UniversalMainWindow.apply_ai_repair_history_entry = _apply_ai_repair_history_entry
-UniversalMainWindow.selected_repair_diff_fields = _selected_repair_diff_fields
-UniversalMainWindow.apply_repair_history_fields = _apply_repair_history_fields
-UniversalMainWindow.apply_best_ai_repair_history = _apply_best_ai_repair_history
-UniversalMainWindow.apply_selected_ai_repair_history = _apply_selected_ai_repair_history
-UniversalMainWindow.compare_selected_ai_repair_history = _compare_selected_ai_repair_history
-UniversalMainWindow.apply_selected_ai_repair_fields = _apply_selected_ai_repair_fields
-UniversalMainWindow.export_ai_repair_history_to_file = _export_ai_repair_history_to_file
-UniversalMainWindow.export_ai_call_logs = _export_ai_call_logs
-UniversalMainWindow.export_ai_call_summary = _export_ai_call_summary
-UniversalMainWindow.export_ai_repair_history = _export_ai_repair_history
-UniversalMainWindow.clear_ai_call_logs_and_refresh = _clear_ai_call_logs_and_refresh
-UniversalMainWindow.confirm_clear_ai_call_logs = _confirm_clear_ai_call_logs
+    def update_shell_nav_state(self, current_tab):
+        for name, button in (getattr(self, 'nav_buttons', {}) or {}).items():
+            button.setChecked(name == current_tab)
 
+    def apply_modern_shell_style(self):
+        pass
 
-def run_universal_app():
-    app = QApplication.instance() or QApplication(sys.argv)
-    window = UniversalMainWindow()
-    window.show()
-    return app.exec()
+    def handle_shell_nav_click(self, tab_text):
+        if hasattr(self, 'expert_tab_names') and tab_text in self.expert_tab_names and not any(self.tabs.isTabVisible(i) for i in range(self.tabs.count()) if self.tabs.tabText(i) in self.expert_tab_names):
+            self.set_workspace_mode(True)
+        self.show_main_tab(tab_text)
+        if hasattr(self, 'nav_buttons'):
+            for name, button in self.nav_buttons.items():
+                button.setChecked(name == tab_text)
 
+# --- auto-register modules ---
+import ui_ai_actions
+import ui_ai_buttons
+import ui_ai_history
+import ui_ai_nl
+import ui_ai_preview
+import ui_ai_quality
+import ui_ai_results
+import ui_ai_runtime
+import ui_ai_settings
+import ui_ai_table
+import ui_ai_wizard
+import ui_collect_runtime
+import ui_detail_panel
+import ui_detail_panel_runtime
+import ui_diagnostics
+import ui_export_utils
+import ui_exports
+import ui_file_actions
+import ui_firecrawl
+import ui_history
+import ui_history_change
+import ui_logging
+import ui_overview
+import ui_preflight
+import ui_preview_quality
+import ui_quality
+import ui_queue
+import ui_records_memory
+import ui_result_tables
+import ui_run_archive
+import ui_schedules
+import ui_simple_collect
+import ui_simple_results
+import ui_strategy
+import ui_subpages
+import ui_task_tab
+import ui_template_ops
+import ui_template_tab
+import ui_two_click
+import ui_wizard_plan
+import ui_wizard_runtime
+import ui_wizard_scene
+import ui_worker_runtime
+from ui_registry import bind_all
 
-def pick_element_from_page(url, timeout_seconds=90):
-    from playwright.sync_api import sync_playwright
-
-    result_queue = queue.Queue(maxsize=1)
-    script = """
-    (() => {
-      if (window.__collectorPickerInstalled) return;
-      window.__collectorPickerInstalled = true;
-      const style = document.createElement('style');
-      style.textContent = `
-        *[data-collector-hover="1"] { outline: 3px solid #1d4ed8 !important; cursor: crosshair !important; }
-        #collector-picker-tip {
-          position: fixed; left: 12px; top: 12px; z-index: 2147483647;
-          background: #111827; color: white; padding: 8px 10px;
-          font: 14px/1.4 sans-serif; border-radius: 6px;
-        }
-      `;
-      document.documentElement.appendChild(style);
-      const tip = document.createElement('div');
-      tip.id = 'collector-picker-tip';
-      tip.textContent = '点击要采集的文字、图片或链接；按 Esc 取消';
-      document.body.appendChild(tip);
-      let last = null;
-      function selectorFor(el) {
-        const tag = (el.tagName || '').toLowerCase();
-        if (el.id) return `${tag}#${CSS.escape(el.id)}`;
-        const classes = Array.from(el.classList || []).filter(Boolean).slice(0, 3);
-        if (classes.length) return tag + classes.map(c => '.' + CSS.escape(c)).join('');
-        const parent = el.parentElement;
-        if (!parent) return tag;
-        const siblings = Array.from(parent.children).filter(x => x.tagName === el.tagName);
-        if (siblings.length > 1) return `${tag}:nth-of-type(${siblings.indexOf(el) + 1})`;
-        return tag;
-      }
-      document.addEventListener('mouseover', event => {
-        if (last) last.removeAttribute('data-collector-hover');
-        last = event.target;
-        if (last && last.id !== 'collector-picker-tip') last.setAttribute('data-collector-hover', '1');
-      }, true);
-      document.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        const el = event.target;
-        window.__collectorPickResult = {
-          tag: (el.tagName || '').toLowerCase(),
-          id: el.id || '',
-          classes: Array.from(el.classList || []),
-          selector: selectorFor(el),
-          text: (el.innerText || el.alt || el.title || '').trim().slice(0, 500)
-        };
-      }, true);
-      document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') window.__collectorPickResult = {cancelled: true};
-      }, true);
-    })();
-    """
-
-    def run_picker():
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=8000)
-            except Exception:
-                pass
-            page.evaluate(script)
-            deadline = time.time() + timeout_seconds
-            result = None
-            while time.time() < deadline:
-                result = page.evaluate("window.__collectorPickResult || null")
-                if result:
-                    break
-                page.wait_for_timeout(250)
-            browser.close()
-            if result and not result.get("cancelled"):
-                result_queue.put(result)
-            else:
-                result_queue.put(None)
-
-    thread = threading.Thread(target=run_picker, daemon=True)
-    thread.start()
-    thread.join(timeout_seconds + 10)
-    if thread.is_alive():
-        raise RuntimeError("点选超时，请重新打开后点击目标元素。")
-    return result_queue.get_nowait() if not result_queue.empty() else None
-
+_bound = bind_all(UniversalMainWindow)
 
 def run_universal_self_test():
     from universal_self_test import run_universal_self_test as _run_universal_self_test

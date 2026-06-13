@@ -3,7 +3,10 @@
 import base64
 import ctypes
 import json
+import logging
 import os
+import time
+from contextlib import contextmanager
 from copy import deepcopy
 from ctypes import wintypes
 
@@ -11,6 +14,51 @@ from core_export import clean_text, now_text
 
 
 SECRET_PREFIX = "dpapi:v1:"
+JSONL_TAIL_READ_BYTES = 1024 * 1024
+JSONL_LOCK_BYTES = 1
+
+
+@contextmanager
+def jsonl_file_lock(file_path, timeout=5):
+    lock_path = f"{file_path}.lock"
+    os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
+    with open(lock_path, "a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            deadline = time.time() + max(0, float(timeout or 0))
+            while True:
+                try:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, JSONL_LOCK_BYTES)
+                    break
+                except OSError:
+                    if time.time() >= deadline:
+                        raise TimeoutError(f"等待日志文件锁超时：{lock_path}")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, JSONL_LOCK_BYTES)
+        else:
+            yield
+
+
+def tail_jsonl_lines(file_path, limit=200):
+    if not limit or limit <= 0:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.readlines()
+    file_size = os.path.getsize(file_path)
+    read_size = min(file_size, max(JSONL_TAIL_READ_BYTES, int(limit) * 4096))
+    with open(file_path, "rb") as f:
+        f.seek(max(0, file_size - read_size))
+        chunk = f.read(read_size)
+    text = chunk.decode("utf-8", errors="ignore")
+    lines = text.splitlines()
+    if file_size > read_size and lines:
+        lines = lines[1:]
+    return lines[-int(limit):]
 
 
 class _DATA_BLOB(ctypes.Structure):
@@ -80,6 +128,9 @@ def unprotect_secret(secret):
         encrypted = base64.b64decode(secret[len(SECRET_PREFIX) :])
         return _dpapi_transform(encrypted, protect=False).decode("utf-8")
     except Exception:
+        logging.getLogger(__name__).warning(
+            "unprotect_secret DPAPI decryption failed, returning empty string",
+            exc_info=True)
         return ""
 
 
@@ -118,8 +169,12 @@ def decrypt_ai_settings_from_disk(settings):
 def append_jsonl_entry(file_path, entry):
     payload = dict(entry or {})
     payload.setdefault("time", now_text())
-    with open(file_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+    line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+    with jsonl_file_lock(file_path):
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
     return payload
 
 
@@ -127,19 +182,24 @@ def load_jsonl_entries(file_path, limit=200):
     if not os.path.exists(file_path):
         return []
     rows = []
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                item = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(item, dict):
-                rows.append(item)
-    if limit and limit > 0:
-        rows = rows[-int(limit):]
+    try:
+        safe_limit = int(limit or 0)
+    except Exception:
+        safe_limit = 200
+    with jsonl_file_lock(file_path):
+        lines = tail_jsonl_lines(file_path, safe_limit if safe_limit > 0 else 0)
+    for line in lines:
+        line = str(line).strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(item, dict):
+            rows.append(item)
+    if safe_limit > 0:
+        rows = rows[-safe_limit:]
     return list(reversed(rows))
 
 
@@ -212,6 +272,9 @@ def summarize_ai_call_log_rows(logs):
 
 
 def clear_jsonl_file(file_path):
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write("")
+    os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+    with jsonl_file_lock(file_path):
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("")
+            f.flush()
     return file_path

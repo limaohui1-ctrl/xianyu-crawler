@@ -1,5 +1,7 @@
 """AI call log and repair history actions for the universal UI."""
 
+from ui_registry import register
+
 import os
 
 from PyQt6.QtCore import Qt
@@ -13,14 +15,20 @@ from universal_core import (
     load_ai_repair_history,
     summarize_ai_call_logs,
 )
-from ui_export_utils import selected_export_path
+from core_export import (
+    export_table_data,
+)
+
+from ui_export_utils import export_default_path, selected_export_path
 
 
+@register("refresh_ai_call_logs")
 def refresh_ai_call_logs(self):
     logs = load_ai_call_logs(200)
     self.fill_ai_call_log_table(logs)
     self.fill_ai_call_summary_table(summarize_ai_call_logs(logs))
 
+@register("fill_ai_call_log_table")
 def fill_ai_call_log_table(self, logs):
     self.ai_call_log_table.setRowCount(0)
     for item in logs or []:
@@ -40,9 +48,11 @@ def fill_ai_call_log_table(self, logs):
         for column, value in enumerate(values):
             self.ai_call_log_table.setItem(row, column, QTableWidgetItem(str(value)))
 
+@register("refresh_ai_call_summary")
 def refresh_ai_call_summary(self):
     self.fill_ai_call_summary_table(summarize_ai_call_logs())
 
+@register("fill_ai_call_summary_table")
 def fill_ai_call_summary_table(self, rows):
     self.ai_call_summary_table.setRowCount(0)
     for item in rows or []:
@@ -63,6 +73,7 @@ def fill_ai_call_summary_table(self, rows):
         for column, value in enumerate(values):
             self.ai_call_summary_table.setItem(row, column, QTableWidgetItem(str(value)))
 
+@register("ai_call_log_table_data")
 def ai_call_log_table_data(self):
     columns = ["时间", "动作", "状态", "厂商", "模型", "Key", "耗时ms", "自动切换", "错误"]
     rows = []
@@ -82,12 +93,14 @@ def ai_call_log_table_data(self):
         )
     return columns, rows
 
+@register("export_ai_call_logs_to_file")
 def export_ai_call_logs_to_file(self, file_path):
     columns, rows = self.ai_call_log_table_data()
     if not rows:
         raise RuntimeError("没有可导出的 AI 调用日志。")
     return export_table_data(file_path, columns, rows, sheet_name="AI调用日志")
 
+@register("ai_call_summary_table_data")
 def ai_call_summary_table_data(self):
     columns = ["厂商", "模型", "Key", "总次数", "成功", "失败", "成功率", "平均耗时ms", "自动切换", "最近时间", "最近错误"]
     rows = []
@@ -109,12 +122,14 @@ def ai_call_summary_table_data(self):
         )
     return columns, rows
 
+@register("export_ai_call_summary_to_file")
 def export_ai_call_summary_to_file(self, file_path):
     columns, rows = self.ai_call_summary_table_data()
     if not rows:
         raise RuntimeError("没有可导出的 AI 用量汇总。")
     return export_table_data(file_path, columns, rows, sheet_name="AI用量汇总")
 
+@register("ai_repair_history_table_data")
 def ai_repair_history_table_data(self):
     columns = ["时间", "厂商", "模型", "样本数", "字段数", "改善", "持平", "变差", "平均变化", "失败字段"]
     rows = []
@@ -135,6 +150,7 @@ def ai_repair_history_table_data(self):
         )
     return columns, rows
 
+@register("refresh_ai_repair_history")
 def refresh_ai_repair_history(self):
     if not hasattr(self, "ai_repair_history_table"):
         return
@@ -151,6 +167,7 @@ def refresh_ai_repair_history(self):
                 item.setBackground(Qt.GlobalColor.red)
             self.ai_repair_history_table.setItem(row, column, item)
 
+@register("repair_history_score")
 def repair_history_score(self, item):
     if not isinstance(item, dict):
         return -999999
@@ -161,6 +178,7 @@ def repair_history_score(self, item):
         + int(item.get("sample_count") or 0)
     )
 
+@register("selected_ai_repair_history_entry")
 def selected_ai_repair_history_entry(self):
     entries = getattr(self, "ai_repair_history_entries", None)
     if entries is None:
@@ -174,6 +192,7 @@ def selected_ai_repair_history_entry(self):
         return None
     return entries[row]
 
+@register("field_rules_from_history_entry")
 def field_rules_from_history_entry(self, entry):
     rules = []
     for item in (entry or {}).get("field_rules", []) or []:
@@ -193,6 +212,7 @@ def field_rules_from_history_entry(self, entry):
         )
     return rules
 
+@register("repair_field_rule_signature")
 def repair_field_rule_signature(self, rule):
     return {
         "selector": rule.selector,
@@ -200,6 +220,7 @@ def repair_field_rule_signature(self, rule):
         "multiple": bool(rule.multiple),
     }
 
+@register("build_repair_history_diff_rows")
 def build_repair_history_diff_rows(self, entry):
     current_rules = {rule.name: rule for rule in self.collect_field_rules_from_table()}
     history_rules = {rule.name: rule for rule in self.field_rules_from_history_entry(entry)}
@@ -232,6 +253,7 @@ def build_repair_history_diff_rows(self, entry):
     rows.sort(key=lambda row: (row.get("change") == "相同", row.get("field", "")))
     return rows
 
+@register("fill_repair_history_diff_table")
 def fill_repair_history_diff_table(self, rows):
     if not hasattr(self, "ai_repair_diff_table"):
         return
@@ -254,6 +276,7 @@ def fill_repair_history_diff_table(self, rows):
                 item.setBackground(Qt.GlobalColor.yellow)
             self.ai_repair_diff_table.setItem(row, column, item)
 
+@register("compare_ai_repair_history_entry")
 def compare_ai_repair_history_entry(self, entry):
     if not entry:
         self.current_ai_repair_history_entry = None
@@ -266,6 +289,7 @@ def compare_ai_repair_history_entry(self, entry):
     self.append_ai_output(f"AI 修复历史差异对比：{changed} 项不同，{len(rows) - changed} 项相同。")
     return rows
 
+@register("apply_ai_repair_history_entry")
 def apply_ai_repair_history_entry(self, entry):
     rules = self.field_rules_from_history_entry(entry)
     if not rules:
@@ -282,6 +306,7 @@ def apply_ai_repair_history_entry(self, entry):
     )
     return True
 
+@register("selected_repair_diff_fields")
 def selected_repair_diff_fields(self):
     if not hasattr(self, "ai_repair_diff_table"):
         return []
@@ -297,6 +322,7 @@ def selected_repair_diff_fields(self):
             fields.append(field_name)
     return fields
 
+@register("apply_repair_history_fields")
 def apply_repair_history_fields(self, entry, field_names):
     history_rules = {rule.name: rule for rule in self.field_rules_from_history_entry(entry)}
     selected_names = [name for name in field_names if name in history_rules]
@@ -327,6 +353,7 @@ def apply_repair_history_fields(self, entry, field_names):
     )
     return True
 
+@register("apply_best_ai_repair_history")
 def apply_best_ai_repair_history(self):
     entries = load_ai_repair_history(0)
     entries = [entry for entry in entries if self.field_rules_from_history_entry(entry)]
@@ -336,6 +363,7 @@ def apply_best_ai_repair_history(self):
     best = max(entries, key=self.repair_history_score)
     return self.apply_ai_repair_history_entry(best)
 
+@register("apply_selected_ai_repair_history")
 def apply_selected_ai_repair_history(self):
     entry = self.selected_ai_repair_history_entry()
     if not entry:
@@ -343,6 +371,7 @@ def apply_selected_ai_repair_history(self):
         return False
     return self.apply_ai_repair_history_entry(entry)
 
+@register("compare_selected_ai_repair_history")
 def compare_selected_ai_repair_history(self):
     entry = self.selected_ai_repair_history_entry()
     if not entry:
@@ -350,6 +379,7 @@ def compare_selected_ai_repair_history(self):
         return []
     return self.compare_ai_repair_history_entry(entry)
 
+@register("apply_selected_ai_repair_fields")
 def apply_selected_ai_repair_fields(self):
     entry = getattr(self, "current_ai_repair_history_entry", None) or self.selected_ai_repair_history_entry()
     if not entry:
@@ -357,12 +387,14 @@ def apply_selected_ai_repair_fields(self):
         return False
     return self.apply_repair_history_fields(entry, self.selected_repair_diff_fields())
 
+@register("export_ai_repair_history_to_file")
 def export_ai_repair_history_to_file(self, file_path):
     columns, rows = self.ai_repair_history_table_data()
     if not rows:
         raise RuntimeError("没有可导出的 AI 修复历史。")
     return export_table_data(file_path, columns, rows, sheet_name="AI修复历史")
 
+@register("export_ai_call_logs")
 def export_ai_call_logs(self):
     columns, rows = self.ai_call_log_table_data()
     if not rows:
@@ -371,7 +403,7 @@ def export_ai_call_logs(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出 AI 调用日志",
-        os.path.join(os.getcwd(), "ai_call_logs.xlsx"),
+        export_default_path("ai_call_logs.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -380,6 +412,7 @@ def export_ai_call_logs(self):
     self.export_ai_call_logs_to_file(file_path)
     self.append_ai_output(f"AI 调用日志已导出：{file_path}")
 
+@register("export_ai_call_summary")
 def export_ai_call_summary(self):
     columns, rows = self.ai_call_summary_table_data()
     if not rows:
@@ -388,7 +421,7 @@ def export_ai_call_summary(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出 AI 用量汇总",
-        os.path.join(os.getcwd(), "ai_call_summary.xlsx"),
+        export_default_path("ai_call_summary.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -397,6 +430,7 @@ def export_ai_call_summary(self):
     self.export_ai_call_summary_to_file(file_path)
     self.append_ai_output(f"AI 用量汇总已导出：{file_path}")
 
+@register("export_ai_repair_history")
 def export_ai_repair_history(self):
     columns, rows = self.ai_repair_history_table_data()
     if not rows:
@@ -405,7 +439,7 @@ def export_ai_repair_history(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出 AI 修复历史",
-        os.path.join(os.getcwd(), "ai_repair_history.xlsx"),
+        export_default_path("ai_repair_history.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -414,11 +448,13 @@ def export_ai_repair_history(self):
     self.export_ai_repair_history_to_file(file_path)
     self.append_ai_output(f"AI 修复历史已导出：{file_path}")
 
+@register("clear_ai_call_logs_and_refresh")
 def clear_ai_call_logs_and_refresh(self):
     clear_ai_call_logs()
     self.refresh_ai_call_logs()
     self.append_ai_output("AI 调用日志已清空。")
 
+@register("confirm_clear_ai_call_logs")
 def confirm_clear_ai_call_logs(self):
     answer = QMessageBox.question(self, "清空调用日志", "确定清空本机 AI 调用日志吗？")
     if answer == QMessageBox.StandardButton.Yes:

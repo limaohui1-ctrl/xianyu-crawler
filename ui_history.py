@@ -1,8 +1,11 @@
 """History, monitoring, and run archive tab construction for the universal UI."""
 
+from ui_registry import register
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -14,11 +17,33 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QTabWidget,
+    QTableWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+
 )
 
+@register("build_history_tab")
 def build_history_tab(self):
     page = QWidget()
     layout = QVBoxLayout(page)
+    layout.setContentsMargins(12, 12, 12, 12)
+    layout.setSpacing(10)
+    summary_box = QGroupBox("历史与监控总览")
+    summary_layout = QVBoxLayout(summary_box)
+    summary_layout.addWidget(QLabel("这里集中查看采集历史、任务档案、变更提醒、变更报告与计划采集。"))
+    summary_layout.addWidget(QLabel("新版布局保持所有原功能入口不变，只优化查阅顺序和信息分区。"))
+    layout.addWidget(summary_box)
     buttons = QHBoxLayout()
     self.reload_history_button = QPushButton("刷新历史")
     self.export_history_button = QPushButton("导出历史")
@@ -122,6 +147,33 @@ def build_history_tab(self):
     self.run_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
     self.run_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
     self.run_table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_topic_table = QTableWidget(0, 4)
+    self.memory_topic_table.setHorizontalHeaderLabels(["ID", "主题", "摘要", "更新时间"])
+    self.memory_topic_table.verticalHeader().setVisible(False)
+    self.memory_topic_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    self.memory_topic_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+    self.memory_topic_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_topic_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_topic_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    self.memory_topic_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_related_table = QTableWidget(0, 4)
+    self.memory_related_table.setHorizontalHeaderLabels(["关系", "标题", "来源", "实体键"])
+    self.memory_related_table.verticalHeader().setVisible(False)
+    self.memory_related_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_related_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+    self.memory_related_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    self.memory_related_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_detail_output = QPlainTextEdit()
+    self.memory_detail_output.setReadOnly(True)
+    self.memory_item_table = QTableWidget(0, 6)
+    self.memory_item_table.setHorizontalHeaderLabels(["类型", "标题", "摘要", "来源", "关系", "实体键"])
+    self.memory_item_table.verticalHeader().setVisible(False)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+    self.memory_item_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
     self.schedule_table = QTableWidget(0, 9)
     self.schedule_table.setHorizontalHeaderLabels(["状态", "计划名", "间隔", "下次运行", "上次运行", "次数", "结果", "网址数", "ID"])
     self.schedule_table.verticalHeader().setVisible(False)
@@ -158,27 +210,76 @@ def build_history_tab(self):
     self.history_sections_tabs.addTab(run_page, "任务档案")
     alert_page = QWidget()
     alert_layout = QVBoxLayout(alert_page)
-    alert_layout.addWidget(QLabel("网页监控变更提醒"))
-    alert_layout.addWidget(self.change_alert_status_label)
-    alert_layout.addWidget(self.change_alert_filter_combo)
+    alert_summary = QGroupBox("提醒概览")
+    alert_summary_layout = QVBoxLayout(alert_summary)
+    alert_summary_layout.addWidget(self.change_alert_status_label)
+    alert_summary_layout.addWidget(self.change_alert_filter_combo)
+    alert_layout.addWidget(alert_summary)
     alert_layout.addWidget(self.change_alert_table)
     self.history_sections_tabs.addTab(alert_page, "变更提醒")
     change_page = QWidget()
     change_layout = QVBoxLayout(change_page)
-    change_layout.addWidget(QLabel("网页监控变更报告"))
+    change_header = QGroupBox("变更报告总览")
+    change_header_layout = QVBoxLayout(change_header)
+    change_header_layout.addWidget(QLabel("用于快速查看字段变化、旧值/新值和监控时间。"))
+    change_layout.addWidget(change_header)
     change_layout.addWidget(self.change_report_table)
     self.history_sections_tabs.addTab(change_page, "变更报告")
     schedule_page = QWidget()
     schedule_layout = QVBoxLayout(schedule_page)
-    schedule_layout.addWidget(QLabel("计划采集任务"))
+    schedule_header = QGroupBox("计划采集")
+    schedule_header_layout = QVBoxLayout(schedule_header)
+    schedule_header_layout.addWidget(QLabel("集中管理定时任务、启停状态和最近运行结果。"))
+    schedule_layout.addWidget(schedule_header)
     schedule_layout.addWidget(self.schedule_table)
     self.history_sections_tabs.addTab(schedule_page, "计划采集")
-    layout.addLayout(buttons)
+    memory_page = QWidget()
+    memory_layout = QVBoxLayout(memory_page)
+    memory_header = QGroupBox("记忆宫殿")
+    memory_header_layout = QVBoxLayout(memory_header)
+    memory_header_layout.addWidget(QLabel("记忆宫殿默认在后台全自动运行：自动建主题、自动同步、自动关联、自动摘要。下面按钮仅用于维护或补救。"))
+    self.memory_archive_current_button = QPushButton("维护：手动归入主题")
+    self.memory_enable_sync_button = QPushButton("维护：开启自动同步")
+    self.memory_mark_synced_button = QPushButton("维护：标记已同步")
+    self.memory_run_sync_button = QPushButton("维护：立即同步主题")
+    self.memory_refresh_button = QPushButton("刷新记忆宫殿")
+    self.memory_archive_current_button.clicked.connect(self.archive_current_records_to_memory_topic)
+    self.memory_enable_sync_button.clicked.connect(self.enable_selected_memory_topic_sync)
+    self.memory_mark_synced_button.clicked.connect(self.mark_selected_memory_topic_synced)
+    self.memory_run_sync_button.clicked.connect(self.run_selected_memory_topic_sync)
+    self.memory_refresh_button.clicked.connect(self.refresh_memory_palace)
+    memory_button_row = QHBoxLayout()
+    memory_button_row.addWidget(self.memory_archive_current_button)
+    memory_button_row.addWidget(self.memory_enable_sync_button)
+    memory_button_row.addWidget(self.memory_mark_synced_button)
+    memory_button_row.addWidget(self.memory_run_sync_button)
+    memory_button_row.addWidget(self.memory_refresh_button)
+    memory_button_row.addStretch(1)
+    memory_header_layout.addLayout(memory_button_row)
+    memory_layout.addWidget(memory_header)
+    memory_splitter = QSplitter(Qt.Orientation.Horizontal)
+    memory_right_panel = QWidget()
+    memory_right_layout = QVBoxLayout(memory_right_panel)
+    memory_right_layout.addWidget(self.memory_item_table)
+    memory_right_layout.addWidget(QLabel("交叉引用详情"))
+    memory_right_layout.addWidget(self.memory_related_table)
+    memory_right_layout.addWidget(self.memory_detail_output)
+    memory_splitter.addWidget(self.memory_topic_table)
+    memory_splitter.addWidget(memory_right_panel)
+    memory_splitter.setStretchFactor(0, 2)
+    memory_splitter.setStretchFactor(1, 3)
+    memory_layout.addWidget(memory_splitter)
+    self.history_sections_tabs.addTab(memory_page, "记忆宫殿")
+    action_box = QGroupBox("快捷操作")
+    action_layout = QVBoxLayout(action_box)
+    action_layout.addLayout(buttons)
+    layout.addWidget(action_box)
     layout.addWidget(self.history_sections_tabs)
     self.fill_schedule_table()
     self.refresh_change_alerts(silent=True)
     return page
 
+@register("build_history_detail_panel")
 def build_history_detail_panel(self):
     panel = QWidget()
     layout = QVBoxLayout(panel)
@@ -200,6 +301,7 @@ def build_history_detail_panel(self):
     layout.addWidget(self.history_detail_table_view)
     return panel
 
+@register("build_run_detail_panel")
 def build_run_detail_panel(self):
     panel = QWidget()
     layout = QVBoxLayout(panel)
@@ -259,4 +361,3 @@ def build_run_detail_panel(self):
     layout.addWidget(QLabel("完整配置 JSON"))
     layout.addWidget(self.run_detail_json_output)
     return panel
-

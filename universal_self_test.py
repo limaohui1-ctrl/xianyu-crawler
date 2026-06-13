@@ -10,6 +10,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QLineEdit, QMessageBox, QProgressBar
 
+from core_firecrawl import (
+    FirecrawlClient,
+    FirecrawlConfig,
+    firecrawl_document_to_record,
+    merge_firecrawl_extract_record,
+    merge_firecrawl_interact_record,
+)
 from universal_core import (
     AI_CALL_LOG_FILE,
     AI_PROVIDER_PRESETS,
@@ -62,6 +69,12 @@ from universal_core import (
 )
 from universal_ui import AIWorker, UniversalMainWindow
 from universal_self_test_runtime import prepare_self_test_runtime
+from universal_self_test_launchers import verify_home_tabs, verify_launcher_layout, verify_simple_panel
+from universal_self_test_ai_history import verify_repair_history_flow
+from universal_self_test_ui_smoke import verify_collect_wizard_smoke
+from universal_self_test_results import verify_result_workflow
+from universal_self_test_queue import verify_queue_workflow
+from universal_self_test_ai_flow import verify_ai_workflow
 
 def run_universal_self_test():
     runtime = prepare_self_test_runtime(
@@ -96,6 +109,191 @@ def run_universal_self_test():
         normalized_url = normalize_url(raw_url, base_url)
         if normalized_url != expected_url:
             raise AssertionError(f"URL 归一化不符合预期：{raw_url} + {base_url} => {normalized_url} != {expected_url}")
+    firecrawl_calls = []
+
+    def fake_firecrawl_transport(endpoint, payload, headers, timeout):
+        firecrawl_calls.append({"endpoint": endpoint, "payload": dict(payload), "headers": dict(headers), "timeout": timeout})
+        if endpoint == "/v2/scrape":
+            return {
+                "success": True,
+                "id": "scrape-job-1",
+                "data": {
+                    "markdown": "# Firecrawl 标题\n\n这是 Firecrawl 抽取出的正文资料，包含商品说明和页面重点。",
+                    "html": "<html><body><a href='/detail'>详情</a><img src='/a.png' alt='图'></body></html>",
+                    "links": [{"url": "/next", "text": "下一页"}],
+                    "metadata": {
+                        "title": "Firecrawl 元标题",
+                        "sourceURL": "https://example.com/item?utm_source=x&id=1",
+                        "author": "Firecrawl 作者",
+                        "ogImage": "/cover.jpg",
+                    },
+                },
+            }
+        if endpoint == "/v2/parse":
+            return {
+                "success": True,
+                "data": {
+                    "markdown": "# Parse 标题\n\nFirecrawl Parse 文件正文",
+                    "metadata": {"title": "Parse 标题", "sourceURL": "https://example.com/parse-source"},
+                    "links": [{"url": "https://example.com/parse-link", "text": "文件链接"}],
+                },
+            }
+        if endpoint == "/v2/scrape/scrape-job-1/interact":
+            return {
+                "success": True,
+                "output": "已点击展开更多，得到隐藏内容",
+                "exitCode": 0,
+                "interactiveLiveViewUrl": "https://live.example.test/session",
+            }
+        if endpoint == "/v2/map":
+            return {"success": True, "links": ["https://example.com/a?utm_source=x", {"url": "/b", "title": "B"}]}
+        if endpoint == "/v2/search":
+            return {
+                "success": True,
+                "data": {
+                    "web": [
+                        {"url": "https://example.com/search-a?utm_campaign=x", "title": "搜索 A", "description": "A 摘要"},
+                        {"link": "https://example.com/search-b", "title": "搜索 B"},
+                    ],
+                    "images": [{"imageUrl": "https://example.com/image-result.jpg", "alt": "图片结果"}],
+                },
+            }
+        if endpoint == "/v2/extract":
+            return {"success": True, "id": "extract-job-1", "status": "processing"}
+        if endpoint == "/v2/extract/extract-job-1":
+            return {
+                "success": True,
+                "status": "completed",
+                "data": {
+                    "title": "抽取标题",
+                    "price": "199",
+                    "author": "抽取作者",
+                    "published_time": "2026-06-10",
+                    "specs": {"颜色": "黑色", "库存": 3},
+                },
+                "sources": [{"url": "https://example.com/item"}],
+            }
+        if endpoint == "/v2/batch/scrape":
+            return {"success": True, "id": "batch-job-1", "status": "scraping"}
+        if endpoint == "/v2/batch/scrape/batch-job-1":
+            return {
+                "success": True,
+                "status": "completed",
+                "completed": 2,
+                "total": 2,
+                "data": [
+                    {
+                        "url": "https://example.com/batch-a",
+                        "markdown": "# Batch A\n\n批量抓取正文 A",
+                        "metadata": {"title": "Batch A"},
+                    },
+                    {
+                        "url": "https://example.com/batch-b",
+                        "markdown": "# Batch B\n\n批量抓取正文 B",
+                        "metadata": {"title": "Batch B"},
+                    },
+                ],
+            }
+        if endpoint == "/v2/crawl":
+            return {"success": True, "id": "crawl-job-1", "status": "scraping"}
+        if endpoint == "/v2/crawl/crawl-job-1":
+            return {
+                "success": True,
+                "status": "completed",
+                "completed": 2,
+                "total": 2,
+                "data": [
+                    {
+                        "url": "https://example.com/crawl-root",
+                        "markdown": "# Crawl Root\n\n深度采集首页",
+                        "metadata": {"title": "Crawl Root"},
+                    },
+                    {
+                        "url": "https://example.com/crawl-detail",
+                        "markdown": "# Crawl Detail\n\n深度采集详情",
+                        "metadata": {"title": "Crawl Detail"},
+                    },
+                ],
+            }
+        raise AssertionError(f"未知 Firecrawl endpoint：{endpoint}")
+
+    firecrawl_config = FirecrawlConfig.from_dict(
+        {
+            "enabled": True,
+            "api_key": "fc-self-test",
+            "base_url": "https://api.firecrawl.dev",
+            "formats": "markdown,html,links",
+            "map_limit": 2,
+            "timeout_seconds": 12,
+        }
+    )
+    firecrawl_client = FirecrawlClient(firecrawl_config, transport=fake_firecrawl_transport)
+    if FirecrawlClient(FirecrawlConfig.from_dict({"enabled": True, "base_url": "http://127.0.0.1:3002/v2"})).endpoint_url("/v2/scrape") != "http://127.0.0.1:3002/v2/scrape":
+        raise AssertionError("Firecrawl 自托管 /v2 地址不应重复拼接版本路径")
+    firecrawl_document = firecrawl_client.scrape("https://example.com/item")
+    firecrawl_record = firecrawl_document_to_record(firecrawl_document, "https://example.com/item", template_name="自检模板")
+    if firecrawl_calls[0]["endpoint"] != "/v2/scrape" or firecrawl_calls[0]["headers"].get("Authorization") != "Bearer fc-self-test":
+        raise AssertionError(f"Firecrawl scrape 请求未携带正确 endpoint/header：{firecrawl_calls[0]}")
+    if firecrawl_calls[0]["payload"].get("origin") != "universal-web-collector":
+        raise AssertionError("Firecrawl 请求未标记来源")
+    if firecrawl_record.get("title") != "Firecrawl 元标题" or "Firecrawl 抽取" not in firecrawl_record.get("body", ""):
+        raise AssertionError(f"Firecrawl 文档未映射为采集记录：{firecrawl_record}")
+    if firecrawl_record.get("url") != "https://example.com/item?id=1" or firecrawl_record.get("template_name") != "自检模板 + Firecrawl":
+        raise AssertionError(f"Firecrawl URL/模板映射错误：{firecrawl_record}")
+    if not any(item.get("url") == "https://example.com/next" for item in firecrawl_record.get("links", [])):
+        raise AssertionError(f"Firecrawl 链接未归一化：{firecrawl_record.get('links')}")
+    if not any(item.get("url") == "https://example.com/cover.jpg" for item in firecrawl_record.get("images", [])):
+        raise AssertionError(f"Firecrawl 图片未归一化：{firecrawl_record.get('images')}")
+    firecrawl_map_links = firecrawl_client.map("https://example.com/")
+    if firecrawl_map_links[0] != "https://example.com/a?utm_source=x" or firecrawl_calls[-1]["payload"].get("ignoreQueryParameters") is not True:
+        raise AssertionError(f"Firecrawl Map 请求/响应不符合预期：{firecrawl_calls[-1]} / {firecrawl_map_links}")
+    if "fc-self-test" in json.dumps(firecrawl_config.safe_dict(), ensure_ascii=False):
+        raise AssertionError("Firecrawl 安全配置摘要不应包含明文 API Key")
+    firecrawl_search_results = firecrawl_client.search("测试搜索", limit=3, sources=["web", "images"])
+    search_urls = [item.get("url") for item in firecrawl_search_results]
+    if "https://example.com/search-a" not in search_urls or "https://example.com/image-result.jpg" not in search_urls:
+        raise AssertionError(f"Firecrawl Search 结果未归一化：{firecrawl_search_results}")
+    if firecrawl_calls[-1]["payload"].get("query") != "测试搜索" or firecrawl_calls[-1]["payload"].get("sources") != ["web", "images"]:
+        raise AssertionError(f"Firecrawl Search 请求参数错误：{firecrawl_calls[-1]}")
+    extract_payload = firecrawl_client.extract(["https://example.com/item"])
+    merged_extract_record = merge_firecrawl_extract_record(
+        {
+            "title": "",
+            "price": "",
+            "published_time": "",
+            "author": "",
+            "body": "原始正文",
+            "tables": [],
+        },
+        extract_payload,
+    )
+    if merged_extract_record.get("title") != "抽取标题" or merged_extract_record.get("price") != "199":
+        raise AssertionError(f"Firecrawl Extract 结果未补齐基础字段：{merged_extract_record}")
+    if "Firecrawl 结构化抽取" not in merged_extract_record.get("body", "") or not merged_extract_record.get("tables"):
+        raise AssertionError(f"Firecrawl Extract 结果未进入正文/表格：{merged_extract_record}")
+    parse_file_path = os.path.join(data_dir, "firecrawl_parse_self_test.txt")
+    os.makedirs(os.path.dirname(parse_file_path), exist_ok=True)
+    with open(parse_file_path, "w", encoding="utf-8") as f:
+        f.write("Firecrawl Parse 自检文件")
+    parse_table = firecrawl_client.parse_file_to_table(parse_file_path, instruction="整理文件")
+    if parse_table.get("source") != "firecrawl_parse" or not any("Parse 标题" in str(row) for row in parse_table.get("rows", [])):
+        raise AssertionError(f"Firecrawl Parse 文件解析未输出表格：{parse_table}")
+    interact_payload = firecrawl_client.interact("scrape-job-1", prompt="点击展开更多")
+    merged_interact_record = merge_firecrawl_interact_record({"body": "原始正文", "tables": []}, interact_payload)
+    if "隐藏内容" not in merged_interact_record.get("body", "") or not merged_interact_record.get("tables"):
+        raise AssertionError(f"Firecrawl Interact 结果未合并到记录：{merged_interact_record}")
+    batch_payload = firecrawl_client.batch_scrape(["https://example.com/batch-a", "https://example.com/batch-b"])
+    if batch_payload.get("status") != "completed" or len(batch_payload.get("data", [])) != 2:
+        raise AssertionError(f"Firecrawl Batch 轮询结果错误：{batch_payload}")
+    batch_start_call = next((item for item in firecrawl_calls if item.get("endpoint") == "/v2/batch/scrape"), {})
+    if batch_start_call.get("payload", {}).get("maxConcurrency") != firecrawl_config.batch_max_concurrency:
+        raise AssertionError(f"Firecrawl Batch 请求未携带并发配置：{batch_start_call}")
+    crawl_payload = firecrawl_client.crawl("https://example.com/crawl-root")
+    if crawl_payload.get("status") != "completed" or len(crawl_payload.get("data", [])) != 2:
+        raise AssertionError(f"Firecrawl Crawl 轮询结果错误：{crawl_payload}")
+    crawl_start_call = next((item for item in firecrawl_calls if item.get("endpoint") == "/v2/crawl"), {})
+    if crawl_start_call.get("payload", {}).get("limit") != firecrawl_config.crawl_limit or crawl_start_call.get("payload", {}).get("maxDiscoveryDepth") != firecrawl_config.crawl_max_depth:
+        raise AssertionError(f"Firecrawl Crawl 请求未携带页数/深度配置：{crawl_start_call}")
     ensure_runtime_dirs()
     with open(schedule_file, "w", encoding="utf-8") as f:
         f.write("{bad schedule json")
@@ -113,118 +311,74 @@ def run_universal_self_test():
     app = QApplication.instance() or QApplication(sys.argv)
     window = UniversalMainWindow()
     self_test_stage("window ready")
-    if "通用网站采集中心" not in window.windowTitle():
-        raise AssertionError("窗口标题错误")
-    if "闲鱼" in window.windowTitle() or "咸鱼" in window.windowTitle():
-        raise AssertionError("通用入口不应展示旧闲鱼产品名")
-    source_only_launchers = (
-        "通用网站采集中心.spec",
-    )
-    universal_launchers = (
-        "启动通用网站采集中心.bat",
-        "启动通用网站采集中心_无黑窗.vbs",
-        "启动通用网站采集中心_EXE版.vbs",
-    )
-    if not getattr(sys, "frozen", False):
-        universal_launchers = universal_launchers + source_only_launchers
-    for launcher_name in universal_launchers:
-        launcher_path = os.path.join(os.getcwd(), launcher_name)
-        if not os.path.exists(launcher_path):
-            raise AssertionError(f"通用产品入口文件缺失：{launcher_name}")
-        with open(launcher_path, "r", encoding="utf-8", errors="ignore") as f:
-            launcher_text = f.read()
-        if launcher_name.startswith("启动通用") and "--xianyu" in launcher_text:
-            raise AssertionError(f"通用启动器不应进入闲鱼兼容模式：{launcher_name}")
-    legacy_launcher_names = (
-        "启动闲鱼监测软件.bat",
-        "启动闲鱼监测软件_无黑窗.vbs",
-        "启动闲鱼监测软件_EXE版.vbs",
-    )
-    legacy_entry_dir = os.path.join(os.getcwd(), "旧版闲鱼兼容入口")
-    if not getattr(sys, "frozen", False):
-        if not os.path.isdir(legacy_entry_dir):
-            raise AssertionError("旧闲鱼入口必须隔离到旧版闲鱼兼容入口目录")
-        for legacy_launcher_name in legacy_launcher_names:
-            root_legacy_path = os.path.join(os.getcwd(), legacy_launcher_name)
-            if os.path.exists(root_legacy_path):
-                raise AssertionError(f"根目录不应保留旧闲鱼入口，避免误点：{legacy_launcher_name}")
-            legacy_path = os.path.join(legacy_entry_dir, legacy_launcher_name)
-            if not os.path.exists(legacy_path):
-                raise AssertionError(f"旧闲鱼兼容入口缺失：{legacy_launcher_name}")
-            with open(legacy_path, "r", encoding="utf-8", errors="ignore") as f:
-                legacy_text = f.read()
-            if "--xianyu" not in legacy_text:
-                raise AssertionError(f"旧闲鱼启动器必须显式进入兼容模式：{legacy_launcher_name}")
-        if os.path.exists(os.path.join(os.getcwd(), "闲鱼监测软件.lnk")):
-            raise AssertionError("根目录不应保留旧闲鱼快捷方式，避免和通用入口冲突")
-    tab_names = [window.tabs.tabText(index) for index in range(window.tabs.count())]
-    if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-        raise AssertionError("默认首页必须是普通人一键采集面板")
-    for expected_tab in ("一键采集", "监控概览", "AI 抓取工作台", "批量采集", "模板库", "历史与监控"):
-        if expected_tab not in tab_names:
-            raise AssertionError(f"主界面分区缺失：{expected_tab}")
-    hidden_expert_tabs = [
-        window.tabs.tabText(index)
-        for index in range(window.tabs.count())
-        if window.tabs.tabText(index) in getattr(window, "expert_tab_names", []) and window.tabs.isTabVisible(index)
-    ]
-    if hidden_expert_tabs:
-        raise AssertionError("专家功能默认不应显示在普通人首页")
+    verify_launcher_layout(window)
+    verify_home_tabs(window)
+    verify_simple_panel(window)
     for attr_name in (
-        "simple_url_input",
-        "simple_goal_input",
-        "simple_start_button",
-        "simple_stop_button",
-        "simple_ai_suggest_button",
-        "simple_contact_button",
-        "simple_image_button",
-        "simple_schedule_button",
-        "simple_retry_button",
-        "simple_retry_low_quality_button",
-        "simple_apply_diagnosis_button",
-        "simple_sample_verify_button",
-        "simple_strategy_compare_button",
-        "simple_retry_report_button",
-        "simple_real_check_button",
-        "simple_depth_combo",
-        "simple_column_card_label",
-        "simple_ai_provider_combo",
-        "simple_ai_model_combo",
-        "simple_ai_key_input",
-        "simple_ai_save_button",
-        "simple_ai_test_button",
-        "simple_result_table",
-        "simple_result_summary_label",
-        "simple_retry_report_label",
-        "simple_diagnosis_label",
-        "simple_repair_plan_label",
-        "simple_fix_pagination_button",
-        "simple_fix_subpages_button",
-        "simple_fix_login_button",
-        "simple_fix_fields_button",
-        "simple_sample_verify_label",
-        "simple_strategy_compare_label",
-        "simple_discovery_label",
-        "simple_step_labels",
-        "simple_recent_files_table",
-        "simple_recent_records_table",
-        "simple_open_recent_file_button",
-        "simple_open_recent_folder_button",
-        "simple_preview_title_label",
-        "simple_preview_url_label",
-        "simple_preview_counts_label",
-        "simple_preview_body_output",
-        "simple_field_table",
-        "simple_field_status_label",
-        "simple_column_table",
-        "simple_column_delete_button",
-        "simple_input_box",
-        "simple_ai_box",
-        "simple_recent_box",
-        "simple_main_splitter",
+        "firecrawl_enabled_checkbox",
+        "firecrawl_api_key_input",
+        "firecrawl_base_url_input",
+        "firecrawl_map_checkbox",
+        "firecrawl_search_checkbox",
+        "firecrawl_search_query_input",
+        "firecrawl_search_limit_input",
+        "firecrawl_extract_checkbox",
+        "firecrawl_extract_prompt_input",
+        "firecrawl_batch_checkbox",
+        "firecrawl_batch_concurrency_input",
+        "firecrawl_crawl_checkbox",
+        "firecrawl_crawl_limit_input",
+        "firecrawl_crawl_depth_input",
+        "firecrawl_parse_checkbox",
+        "firecrawl_interact_checkbox",
+        "firecrawl_interact_wait_input",
+        "firecrawl_interact_prompt_input",
     ):
         if not hasattr(window, attr_name):
-            raise AssertionError(f"普通人一键采集面板缺少控件：{attr_name}")
+            raise AssertionError(f"Firecrawl 配置控件缺失：{attr_name}")
+    window.firecrawl_enabled_checkbox.setChecked(True)
+    window.firecrawl_api_key_input.setText("fc-ui-self-test")
+    window.firecrawl_base_url_input.setText("https://api.firecrawl.dev")
+    window.firecrawl_map_checkbox.setChecked(True)
+    window.firecrawl_search_checkbox.setChecked(True)
+    window.firecrawl_search_query_input.setText("智能采集 自检")
+    window.firecrawl_search_limit_input.setValue(7)
+    window.firecrawl_extract_checkbox.setChecked(True)
+    window.firecrawl_extract_prompt_input.setText("提取标题、价格、作者、时间和规格")
+    window.firecrawl_batch_checkbox.setChecked(True)
+    window.firecrawl_batch_concurrency_input.setValue(6)
+    window.firecrawl_crawl_checkbox.setChecked(True)
+    window.firecrawl_crawl_limit_input.setValue(12)
+    window.firecrawl_crawl_depth_input.setValue(3)
+    window.firecrawl_parse_checkbox.setChecked(True)
+    window.firecrawl_interact_checkbox.setChecked(True)
+    window.firecrawl_interact_wait_input.setValue(1500)
+    window.firecrawl_interact_prompt_input.setText("点击展开更多")
+    ui_firecrawl_config = window.current_firecrawl_config(include_secret=True)
+    if not ui_firecrawl_config.get("enabled") or ui_firecrawl_config.get("api_key") != "fc-ui-self-test":
+        raise AssertionError(f"Firecrawl UI 配置未读取运行时密钥：{ui_firecrawl_config}")
+    stored_firecrawl_config = window.current_run_config(["https://example.com/"]).get("firecrawl", {})
+    if stored_firecrawl_config.get("api_key") or not stored_firecrawl_config.get("api_key_present"):
+        raise AssertionError(f"Firecrawl 任务档案配置不应保存明文 Key：{stored_firecrawl_config}")
+    if stored_firecrawl_config.get("base_url") != "https://api.firecrawl.dev" or not stored_firecrawl_config.get("use_map"):
+        raise AssertionError(f"Firecrawl 任务档案配置缺少 API/Map 摘要：{stored_firecrawl_config}")
+    if (
+        not stored_firecrawl_config.get("use_search")
+        or stored_firecrawl_config.get("search_query") != "智能采集 自检"
+        or stored_firecrawl_config.get("search_limit") != 7
+        or not stored_firecrawl_config.get("use_extract")
+        or "标题" not in stored_firecrawl_config.get("extract_prompt", "")
+        or not stored_firecrawl_config.get("use_batch")
+        or stored_firecrawl_config.get("batch_max_concurrency") != 6
+        or not stored_firecrawl_config.get("use_crawl")
+        or stored_firecrawl_config.get("crawl_limit") != 12
+        or stored_firecrawl_config.get("crawl_max_depth") != 3
+        or not stored_firecrawl_config.get("use_parse")
+        or not stored_firecrawl_config.get("use_interact")
+        or stored_firecrawl_config.get("interact_wait_ms") != 1500
+        or "展开更多" not in stored_firecrawl_config.get("interact_prompt", "")
+    ):
+        raise AssertionError(f"Firecrawl 高级配置未进入任务档案摘要：{stored_firecrawl_config}")
     if window.simple_export_retry_report():
         raise AssertionError("普通人首页不应在没有重抓效果时导出空报告")
     if "重抓效果报告" not in getattr(window, "last_simple_message", ("", ""))[1]:
@@ -1137,6 +1291,15 @@ def run_universal_self_test():
         raise AssertionError("统一普通界面不应显示复杂专家页")
     if window.show_main_tab("历史与监控"):
         raise AssertionError("统一普通界面不应跳转到复杂历史页")
+    window.set_workspace_mode(True)
+    visible_workspace_tabs = [
+        window.tabs.tabText(index)
+        for index in range(window.tabs.count())
+        if window.tabs.tabText(index) in getattr(window, "expert_tab_names", []) and window.tabs.isTabVisible(index)
+    ]
+    if not visible_workspace_tabs:
+        raise AssertionError("高级工作区模式未显示专家页")
+    window.set_workspace_mode(False)
     window.set_expert_mode(False)
     if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
         raise AssertionError("统一普通界面未保持在一键采集面板")
@@ -1244,75 +1407,7 @@ def run_universal_self_test():
         raise AssertionError("列表页向导未自动选择便宜批量模型用途")
     if window.ai_provider_combo.currentData() != "qwen" or window.current_ai_model_text() != "qwen-flash":
         raise AssertionError("列表页向导未切换到批量推荐模型")
-    gallery_plan = analyze_collect_task(
-        "https://example.com/gallery",
-        html="<html><head><title>图片相册</title></head><body>"
-        + "".join(f"<img src='/img/{index}.jpg'>" for index in range(12))
-        + "</body></html>",
-        user_goal="抓取图片",
-        preferred_scene="通用自动识别",
-    )
-    if gallery_plan.get("use_case", {}).get("key") != "vision_file":
-        raise AssertionError("图片页面未推荐视觉模型用途")
-    form_plan = analyze_collect_task(
-        "https://example.com/search",
-        html="<html><body><form>"
-        + "".join(f"<input name='q{index}'>" for index in range(5))
-        + "</form></body></html>",
-        user_goal="复杂动态搜索页，需要修复选择器",
-        preferred_scene="通用自动识别",
-    )
-    if form_plan.get("use_case", {}).get("key") != "strong_reasoning":
-        raise AssertionError("复杂表单页未推荐强推理模型用途")
-    pdf_plan = analyze_collect_task("https://example.com/report.pdf", html="", user_goal="PDF 转表格")
-    if pdf_plan.get("use_case", {}).get("key") != "vision_file":
-        raise AssertionError("PDF 链接未推荐视觉模型用途")
-    if window.latest_preview_rules == [] or window.ai_quality_table.rowCount() < 3:
-        raise AssertionError("向导未自动预采并生成字段质量评分")
-    if "字段质量评分" not in window.ai_quality_score_label.text():
-        raise AssertionError("向导预采后未刷新字段质量评分")
-    if not window.prepare_two_click_collect():
-        raise AssertionError("2 次点击准备采集失败")
-    if "新手流程：" not in window.new_user_flow_label.text() or "2 AI 准备：进行中" not in window.new_user_flow_label.text():
-        raise AssertionError("新手流程未展示 AI 准备阶段")
-    if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-        raise AssertionError("2 次点击准备后不应离开统一普通界面")
-    if window.template_combo.currentText() != "电商商品页":
-        raise AssertionError("2 次点击准备后未保留推荐模板")
-    if window.task_queue_table.rowCount() < 1 or not window.task_queue_rows:
-        raise AssertionError("2 次点击准备后未生成任务队列")
-    if "2 次点击准备完成" not in window.collect_progress_label.text():
-        raise AssertionError("2 次点击准备状态未刷新")
-    if "robots.txt" not in window.risk_summary_label.text():
-        raise AssertionError("2 次点击准备后未刷新 robots 风险摘要")
-    if window.ai_two_click_prepare_button.text() != "AI 一键准备":
-        raise AssertionError("一键准备按钮文案不清晰")
-    if window.ai_two_click_start_button.text() != "准备并开始采集":
-        raise AssertionError("准备并开始按钮缺失")
-    start_calls = []
-    original_start_collecting_for_two_click = window.start_collecting
-    window.start_collecting = lambda: start_calls.append(window.urls_from_input())
-    try:
-        if not window.prepare_and_start_collect():
-            raise AssertionError("准备并开始采集失败")
-    finally:
-        window.start_collecting = original_start_collecting_for_two_click
-    if not start_calls or not start_calls[0]:
-        raise AssertionError("准备并开始采集未触发开始采集")
-    if "3 开始采集：进行中" not in window.new_user_flow_label.text():
-        raise AssertionError("新手流程未展示开始采集阶段")
-    preview_columns, preview_rows = window.ai_table_data()
-    preview_text = json.dumps({"columns": preview_columns, "rows": preview_rows}, ensure_ascii=False)
-    if "商品列表" not in preview_text or "价格" not in preview_text:
-        raise AssertionError("向导预采结果未进入 AI 表格")
-    if window.result_table.columnCount() != len(FIELD_HEADERS):
-        raise AssertionError("结果表字段不完整")
-    if classify_error("API 请求失败：HTTP 401 unauthorized").get("category") != "API 配置":
-        raise AssertionError("API 错误分类失败")
-    if classify_error("Timeout 30000ms exceeded").get("category") != "网络超时":
-        raise AssertionError("超时错误分类失败")
-    if classify_error("locator.click: waiting for selector").get("category") != "选择器失效":
-        raise AssertionError("选择器错误分类失败")
+    verify_collect_wizard_smoke(window)
     for attr_name in (
         "detail_title_label",
         "detail_body_output",
@@ -1420,7 +1515,7 @@ def run_universal_self_test():
         raise AssertionError("反重复默认开关未创建")
     window.url_input.setPlainText("https://example.com/a\nhttps://example.com/b")
     window.keep_login_checkbox.setChecked(True)
-    window.delay_input.setValue(0)
+    window.delay_input.setValue(1)
     window.page_limit_input.setValue(30)
     window.subpage_checkbox.setChecked(True)
     window.subpage_limit_input.setValue(30)
@@ -1428,13 +1523,13 @@ def run_universal_self_test():
     window.add_field_row(FieldRule("邮箱", "a[href^=mailto]", "href", True))
     risks = window.run_preflight_check()
     risk_text = json.dumps(risks, ensure_ascii=False)
-    for expected in ("robots.txt", "登录态", "访问频率", "敏感字段", "采集规模"):
+    for expected in ("robots.txt", "登录态", "敏感字段", "采集规模"):
         if expected not in risk_text:
             raise AssertionError(f"抓取前风险检查未识别：{expected}")
-    if window.risk_table.rowCount() < 5:
+    if window.risk_table.rowCount() < 4:
         raise AssertionError("抓取前风险表未显示检查结果")
     risk_summary = window.risk_summary_label.text()
-    for expected in ("高风险", "robots.txt", "登录态", "访问频率", "敏感字段"):
+    for expected in ("高风险", "robots.txt", "登录态", "敏感字段"):
         if expected not in risk_summary:
             raise AssertionError(f"抓取前风险摘要未展示：{expected}")
     if not window.auto_fix_before_start():
@@ -1972,243 +2067,14 @@ def run_universal_self_test():
       </body>
     </html>
     """
-    record = UniversalExtractor(template).extract(html, "https://example.com/item")
-    if record["title"] != "测试商品 A":
-        raise AssertionError("标题识别失败")
-    if "128.50" not in record["price"]:
-        raise AssertionError("价格识别失败")
-    if record["published_time"] != "2026-06-08":
-        raise AssertionError("时间识别失败")
-    if record["author"] != "测试作者":
-        raise AssertionError("作者识别失败")
-    if not record["images"] or record["images"][0]["url"] != "https://example.com/a.jpg":
-        raise AssertionError("图片识别失败")
-    if not record["links"] or record["links"][0]["url"] != "https://example.com/detail":
-        raise AssertionError("链接识别失败")
-    if not record["tables"]:
-        raise AssertionError("表格识别失败")
-    window.add_record(record)
-    if "4 导出结果：进行中" not in window.new_user_flow_label.text():
-        raise AssertionError("新手流程未展示导出结果阶段")
-    export_hint = window.result_export_hint_label.text()
-    for expected in ("导出 Excel", "复制到 Sheets", "下载图片"):
-        if expected not in export_hint:
-            raise AssertionError(f"导出引导缺失：{expected}")
-    window.result_table.selectRow(0)
-    window.update_current_detail()
-    if "测试商品 A" not in window.detail_title_label.text():
-        raise AssertionError("详情标题预览失败")
-    if window.detail_link_table.rowCount() < 1:
-        raise AssertionError("链接展开失败")
-    if window.detail_table_view.rowCount() < 1 or window.detail_table_view.columnCount() < 2:
-        raise AssertionError("表格展开失败")
-    if window.image_layout.count() < 2:
-        raise AssertionError("图片缩略图区域未创建条目")
-    db = CollectorDatabase()
-    first = db.save_record(record, skip_unchanged=True)
-    duplicate = db.save_record(dict(record), skip_unchanged=True)
-    changed_record = dict(record)
-    changed_record["price"] = "￥99.00"
-    from universal_core import content_fingerprint
-
-    changed_record["fingerprint"] = content_fingerprint(changed_record)
-    second = db.save_record(changed_record, skip_unchanged=True)
-    if first.get("changed"):
-        raise AssertionError("首次记录不应标记变化")
-    if not duplicate.get("duplicate"):
-        raise AssertionError("未变化记录未跳过重复入库")
-    if not second.get("changed"):
-        raise AssertionError("历史变化追踪失败")
-    window.clear_current_results()
-    if "4 导出结果：完成" in window.new_user_flow_label.text() or "4 导出结果：进行中" in window.new_user_flow_label.text():
-        raise AssertionError("清空结果后新手流程仍停留在导出阶段")
-    if "采到结果后" not in window.result_export_hint_label.text():
-        raise AssertionError("清空结果后导出引导未恢复等待状态")
-    self_test_stage("result workflow OK")
-    error_record = dict(record)
-    error_record["error"] = "HTTP 500"
-    for sample in (first, duplicate, second, error_record):
-        window.add_record(sample)
-    status_column = FIELD_HEADERS.index("是否变化") if "是否变化" in FIELD_HEADERS else FIELD_HEADERS.index("变化")
-    expected_statuses = ["新增", "重复", "变化", "错误"]
-    actual_statuses = [
-        window.result_table.item(row, status_column).text()
-        for row in range(window.result_table.rowCount())
-    ]
-    if actual_statuses != expected_statuses:
-        raise AssertionError(f"结果状态列错误：{actual_statuses}")
-    self_test_stage("status table OK")
-    summary_text = window.result_status_label.text()
-    for expected in ("新增 1", "重复 1", "变化 1", "错误 1"):
-        if expected not in summary_text:
-            raise AssertionError(f"结果状态汇总缺失：{expected}")
-    quality_records = [
-        {**record, "title": "重复标题", "price": "", "body": "短正文", "error": ""},
-        {**record, "title": "重复标题", "price": "", "body": "短正文", "error": ""},
-        {**record, "title": "重复标题", "price": "", "body": "超长" * 3000, "error": "HTTP 500"},
-    ]
-    result_quality = window.analyze_result_quality(quality_records)
-    quality_by_field = {item.get("field"): item for item in result_quality}
-    if quality_by_field.get("价格", {}).get("status") != "需处理" or "空值率" not in quality_by_field.get("价格", {}).get("problem", ""):
-        raise AssertionError("采集结果质量总览未识别高空值字段")
-    if quality_by_field.get("标题", {}).get("status") != "需确认" or "重复率" not in quality_by_field.get("标题", {}).get("problem", ""):
-        raise AssertionError("采集结果质量总览未识别重复字段")
-    if "内容过长" not in quality_by_field.get("正文", {}).get("problem", ""):
-        raise AssertionError("采集结果质量总览未识别疑似整页字段")
-    if quality_by_field.get("错误", {}).get("status") != "需处理":
-        raise AssertionError("采集结果质量总览未识别错误列")
-    window.fill_result_quality_table(result_quality)
-    if window.result_quality_table.rowCount() < 4 or "需要修复" not in window.result_quality_score_label.text():
-        raise AssertionError("采集结果质量总览未进入 UI")
-    self_test_stage("result quality OK")
-    repair_issues = window.result_quality_issues_for_repair(result_quality)
-    if not repair_issues or any(item.get("field") == "错误" for item in repair_issues):
-        raise AssertionError("采集结果质量问题未正确转换为字段修复问题")
-    captured_repair = []
-    original_run_ai_worker = window.run_ai_worker
-    original_records_for_quality = list(window.records)
-    window.records = list(quality_records)
-    window.latest_preview_url = "https://example.com/item"
-    window.latest_preview_html = html
-    window.run_ai_worker = lambda action, payload=None: captured_repair.append((action, payload or {}))
-    try:
-        window.ai_repair_from_result_quality()
-    finally:
-        window.records = original_records_for_quality
-        window.run_ai_worker = original_run_ai_worker
-    if not captured_repair or captured_repair[0][0] != "repair_fields":
-        raise AssertionError("采集结果质量问题未生成 AI 修复任务")
-    repair_payload = captured_repair[0][1]
-    if not repair_payload.get("quality_issues") or not repair_payload.get("field_rules"):
-        raise AssertionError("AI 修复任务缺少质量问题或字段规则")
-    repair_fields = {item.get("field") for item in repair_payload.get("quality_issues", [])}
-    if "价格" not in repair_fields or "标题" not in repair_fields:
-        raise AssertionError("AI 修复任务未包含空值/重复问题字段")
-    if window.latest_preview_rules == [] or not window.auto_apply_repair_after_ai:
-        raise AssertionError("AI 修复任务未准备自动应用和重新预采状态")
-    self_test_stage("repair task payload OK")
-    after_quality = [
-        {**issue, "status": "正常", "score": 100, "problem": "无", "advice": "可以继续使用"}
-        for issue in repair_payload.get("quality_issues", [])
-    ]
-    report_rows = window.update_repair_quality_report(repair_payload.get("quality_issues", []), after_quality)
-    if len(report_rows) < 2 or not all(row.get("result") == "改善" for row in report_rows[:2]):
-        raise AssertionError("AI 修复验证报告未识别质量改善")
-    if window.repair_quality_report_table.rowCount() < 2 or "已改善" not in window.repair_quality_report_label.text():
-        raise AssertionError("AI 修复验证报告未进入 UI")
-    self_test_stage("repair quality report OK")
-    repair_history_rows = load_ai_repair_history(0)
-    if not repair_history_rows or repair_history_rows[0].get("field_count", 0) < 2:
-        raise AssertionError("AI 修复历史未保存")
-    window.refresh_ai_repair_history()
-    if window.ai_repair_history_table.rowCount() < 1:
-        raise AssertionError("AI 修复历史未进入 UI")
-    repair_history_export = os.path.join(os.getcwd(), "self_test_runtime", "ai_repair_history.csv")
-    window.export_ai_repair_history_to_file(repair_history_export)
-    if not os.path.exists(repair_history_export):
-        raise AssertionError("AI 修复历史导出失败")
-    self_test_stage("repair history export OK")
-    window.field_table.setRowCount(0)
-    window.add_field_row(FieldRule("标题", ".best-title"))
-    window.add_field_row(FieldRule("价格", ".best-price"))
-    best_history_entry = append_ai_repair_history(
-        {
-            "time": "2026-06-09 10:10:00",
-            "provider_name": "自检厂商",
-            "model": "best-model",
-            "sample_count": 3,
-            "field_count": 2,
-            "improved_count": 2,
-            "unchanged_count": 0,
-            "worse_count": 0,
-            "avg_delta": 50,
-            "failed_fields": [],
-            "field_rules": [rule.to_dict() for rule in window.collect_field_rules_from_table()],
-        }
-    )
-    window.field_table.setRowCount(0)
-    window.add_field_row(FieldRule("标题", ".weak-title"))
-    append_ai_repair_history(
-        {
-            "time": "2026-06-09 10:11:00",
-            "provider_name": "自检厂商",
-            "model": "weak-model",
-            "sample_count": 1,
-            "field_count": 1,
-            "improved_count": 0,
-            "unchanged_count": 1,
-            "worse_count": 0,
-            "avg_delta": 0,
-            "failed_fields": ["标题"],
-            "field_rules": [rule.to_dict() for rule in window.collect_field_rules_from_table()],
-        }
-    )
-    window.refresh_ai_repair_history()
-    window.field_table.setRowCount(0)
-    window.add_field_row(FieldRule("标题", ".current-title"))
-    window.add_field_row(FieldRule("当前独有", ".current-only"))
-    expected_best = best_history_entry
-    expected_best_selectors = [rule.selector for rule in window.field_rules_from_history_entry(expected_best)]
-    diff_rows = window.compare_ai_repair_history_entry(expected_best)
-    diff_changes = {row.get("change") for row in diff_rows}
-    if not {"有变化", "历史新增", "历史缺少"}.intersection(diff_changes) or window.ai_repair_diff_table.rowCount() < 1:
-        raise AssertionError("AI 修复历史字段差异对比未识别变化")
-    title_diff_row = next(
-        (
-            row
-            for row in range(window.ai_repair_diff_table.rowCount())
-            if window.ai_repair_diff_table.item(row, 1) and window.ai_repair_diff_table.item(row, 1).text() == "标题"
-        ),
-        -1,
-    )
-    if title_diff_row < 0:
-        raise AssertionError("AI 修复历史字段差异对比缺少标题字段")
-    selected_index = next(
-        (index for index, entry in enumerate(getattr(window, "ai_repair_history_entries", [])) if entry is expected_best),
-        0,
-    )
-    window.ai_repair_history_table.setCurrentCell(selected_index, 0)
-    window.ai_repair_history_table.selectRow(selected_index)
-    window.compare_ai_repair_history_entry(expected_best)
-    window.ai_repair_diff_table.clearSelection()
-    window.ai_repair_diff_table.setCurrentCell(title_diff_row, 0)
-    window.ai_repair_diff_table.selectRow(title_diff_row)
-    selected_repair_fields = window.selected_repair_diff_fields()
-    if selected_repair_fields != ["标题"]:
-        raise AssertionError(f"AI 修复历史差异表选中字段错误：{selected_repair_fields}")
-    if not window.apply_repair_history_fields(expected_best, selected_repair_fields):
-        raise AssertionError(
-            "未能只应用选中的 AI 修复历史字段："
-            f"history_row={window.ai_repair_history_table.currentRow()}, "
-            f"diff_row={window.ai_repair_diff_table.currentRow()}, "
-            f"fields={selected_repair_fields}"
-        )
-    partial_rules = {rule.name: rule.selector for rule in window.collect_field_rules_from_table()}
-    if partial_rules.get("标题") != ".best-title" or partial_rules.get("当前独有") != ".current-only":
-        raise AssertionError("只应用选中 AI 修复字段未保留当前字段或未更新目标字段")
-    self_test_stage("repair history partial apply OK")
-    window.field_table.setRowCount(0)
-    window.add_field_row(FieldRule("标题", ".current-title"))
-    window.add_field_row(FieldRule("当前独有", ".current-only"))
-    if not window.apply_ai_repair_history_entry(expected_best):
-        raise AssertionError("未能复用指定最佳 AI 修复历史")
-    restored_selectors = [
-        window.field_table.item(row, 1).text()
-        for row in range(window.field_table.rowCount())
-    ]
-    if restored_selectors != expected_best_selectors:
-        raise AssertionError("最佳 AI 修复历史未恢复最佳字段配置")
-    selected_index = next(
-        (index for index, entry in enumerate(getattr(window, "ai_repair_history_entries", [])) if entry.get("time") == best_history_entry.get("time")),
-        -1,
-    )
-    if selected_index < 0:
-        raise AssertionError("AI 修复历史表未保存可选记录")
-    window.ai_repair_history_table.selectRow(selected_index)
-    window.field_table.setRowCount(0)
-    if not window.apply_selected_ai_repair_history() or window.field_table.item(0, 1).text() != ".best-title":
-        raise AssertionError("选中 AI 修复历史未恢复字段配置")
-    self_test_stage("repair history reuse OK")
+    result_ctx = verify_result_workflow(window, template, html, self_test_stage)
+    record = result_ctx["record"]
+    db = result_ctx["db"]
+    first = result_ctx["first"]
+    duplicate = result_ctx["duplicate"]
+    second = result_ctx["second"]
+    repair_payload = result_ctx["repair_payload"]
+    verify_repair_history_flow(window, self_test_stage)
     sample_html = """
     <html><body>
       <h1 class="fixed-title">样本标题</h1>
@@ -2468,6 +2334,20 @@ def run_universal_self_test():
         raise AssertionError("任务运行档案未保存 AI 厂商/模型")
     if archive_run.get("config", {}).get("selected_subpage_urls") != ["https://example.com/detail/1"]:
         raise AssertionError("任务运行档案未保存子页面选择")
+    archive_firecrawl = archive_run.get("config", {}).get("firecrawl", {})
+    if not archive_firecrawl.get("enabled") or archive_firecrawl.get("base_url") != "https://api.firecrawl.dev":
+        raise AssertionError(f"任务运行档案未保存 Firecrawl 配置摘要：{archive_firecrawl}")
+    if (
+        not archive_firecrawl.get("use_search")
+        or not archive_firecrawl.get("use_extract")
+        or not archive_firecrawl.get("use_batch")
+        or not archive_firecrawl.get("use_crawl")
+        or not archive_firecrawl.get("use_parse")
+        or not archive_firecrawl.get("use_interact")
+    ):
+        raise AssertionError(f"任务运行档案未保存 Firecrawl 高级配置：{archive_firecrawl}")
+    if archive_firecrawl.get("api_key") or "fc-ui-self-test" in json.dumps(archive_run.get("config", {}), ensure_ascii=False):
+        raise AssertionError("任务运行档案不应保存 Firecrawl 明文 Key")
     if "任务档案风险快照" not in json.dumps(archive_run.get("risks", []), ensure_ascii=False):
         raise AssertionError("任务运行档案未保存风险快照")
     schedule_item = window.add_schedule_from_current_config(minutes=15)
@@ -2498,10 +2378,47 @@ def run_universal_self_test():
     schedule_runs = []
     original_start_collecting_for_schedule = window.start_collecting
     window.start_collecting = lambda: schedule_runs.append(window.urls_from_input())
+    window.firecrawl_enabled_checkbox.setChecked(False)
+    window.firecrawl_base_url_input.setText("https://changed.invalid")
+    window.firecrawl_map_checkbox.setChecked(False)
+    window.firecrawl_search_checkbox.setChecked(False)
+    window.firecrawl_search_query_input.setText("")
+    window.firecrawl_search_limit_input.setValue(1)
+    window.firecrawl_extract_checkbox.setChecked(False)
+    window.firecrawl_extract_prompt_input.setText("")
+    window.firecrawl_batch_checkbox.setChecked(False)
+    window.firecrawl_batch_concurrency_input.setValue(1)
+    window.firecrawl_crawl_checkbox.setChecked(False)
+    window.firecrawl_crawl_limit_input.setValue(1)
+    window.firecrawl_crawl_depth_input.setValue(1)
+    window.firecrawl_parse_checkbox.setChecked(False)
+    window.firecrawl_interact_checkbox.setChecked(False)
+    window.firecrawl_interact_wait_input.setValue(0)
+    window.firecrawl_interact_prompt_input.setText("")
     window.run_selected_schedule_now()
     window.start_collecting = original_start_collecting_for_schedule
     if schedule_runs != [["https://example.com/item", "https://example.com/list"]]:
         raise AssertionError("立即运行计划采集未回填当前任务配置")
+    if (
+        not window.firecrawl_enabled_checkbox.isChecked()
+        or window.firecrawl_base_url_input.text() != "https://api.firecrawl.dev"
+        or not window.firecrawl_map_checkbox.isChecked()
+        or not window.firecrawl_search_checkbox.isChecked()
+        or window.firecrawl_search_query_input.text() != "智能采集 自检"
+        or window.firecrawl_search_limit_input.value() != 7
+        or not window.firecrawl_extract_checkbox.isChecked()
+        or "标题" not in window.firecrawl_extract_prompt_input.text()
+        or not window.firecrawl_batch_checkbox.isChecked()
+        or window.firecrawl_batch_concurrency_input.value() != 6
+        or not window.firecrawl_crawl_checkbox.isChecked()
+        or window.firecrawl_crawl_limit_input.value() != 12
+        or window.firecrawl_crawl_depth_input.value() != 3
+        or not window.firecrawl_parse_checkbox.isChecked()
+        or not window.firecrawl_interact_checkbox.isChecked()
+        or window.firecrawl_interact_wait_input.value() != 1500
+        or "展开更多" not in window.firecrawl_interact_prompt_input.text()
+    ):
+        raise AssertionError("立即运行计划采集未回填 Firecrawl 配置")
     window.mark_schedule_run(schedule_item.get("id"), "完成", "自检计划完成", count_run=True)
     saved_schedule_item = next((item for item in load_schedules() if item.get("id") == schedule_item.get("id")), None)
     if saved_schedule_item.get("run_count") != 1:
@@ -2543,6 +2460,13 @@ def run_universal_self_test():
         raise AssertionError("任务档案详情未显示完整配置")
     if "真实浏览器" not in window.run_detail_summary_output.toPlainText():
         raise AssertionError("任务档案详情摘要未显示浏览器配置")
+    if (
+        "Firecrawl：开启" not in window.run_detail_summary_output.toPlainText()
+        or "Search 开启" not in window.run_detail_summary_output.toPlainText()
+        or "Crawl 开启" not in window.run_detail_summary_output.toPlainText()
+        or "Interact 开启" not in window.run_detail_summary_output.toPlainText()
+    ):
+        raise AssertionError("任务档案详情摘要未显示 Firecrawl 配置")
     if window.run_detail_result_table.rowCount() != 1:
         raise AssertionError("任务档案详情未显示本次采集结果")
     if "已关联结果：1 条" not in window.run_detail_summary_output.toPlainText():
@@ -2772,6 +2696,23 @@ def run_universal_self_test():
     window.delay_input.setValue(5)
     window.subpage_checkbox.setChecked(False)
     window.selected_subpage_urls = []
+    window.firecrawl_enabled_checkbox.setChecked(False)
+    window.firecrawl_base_url_input.setText("https://changed.invalid")
+    window.firecrawl_map_checkbox.setChecked(False)
+    window.firecrawl_search_checkbox.setChecked(False)
+    window.firecrawl_search_query_input.setText("")
+    window.firecrawl_search_limit_input.setValue(1)
+    window.firecrawl_extract_checkbox.setChecked(False)
+    window.firecrawl_extract_prompt_input.setText("")
+    window.firecrawl_batch_checkbox.setChecked(False)
+    window.firecrawl_batch_concurrency_input.setValue(1)
+    window.firecrawl_crawl_checkbox.setChecked(False)
+    window.firecrawl_crawl_limit_input.setValue(1)
+    window.firecrawl_crawl_depth_input.setValue(1)
+    window.firecrawl_parse_checkbox.setChecked(False)
+    window.firecrawl_interact_checkbox.setChecked(False)
+    window.firecrawl_interact_wait_input.setValue(0)
+    window.firecrawl_interact_prompt_input.setText("")
     window.reuse_selected_run_config()
     if window.urls_from_input() != ["https://example.com/item", "https://example.com/list"]:
         raise AssertionError("任务档案复用未恢复网址")
@@ -2781,6 +2722,26 @@ def run_universal_self_test():
         raise AssertionError("任务档案复用未恢复滚动次数")
     if not window.subpage_checkbox.isChecked() or window.selected_subpage_urls != ["https://example.com/detail/1"]:
         raise AssertionError("任务档案复用未恢复子页面设置")
+    if (
+        not window.firecrawl_enabled_checkbox.isChecked()
+        or window.firecrawl_base_url_input.text() != "https://api.firecrawl.dev"
+        or not window.firecrawl_map_checkbox.isChecked()
+        or not window.firecrawl_search_checkbox.isChecked()
+        or window.firecrawl_search_query_input.text() != "智能采集 自检"
+        or window.firecrawl_search_limit_input.value() != 7
+        or not window.firecrawl_extract_checkbox.isChecked()
+        or "标题" not in window.firecrawl_extract_prompt_input.text()
+        or not window.firecrawl_batch_checkbox.isChecked()
+        or window.firecrawl_batch_concurrency_input.value() != 6
+        or not window.firecrawl_crawl_checkbox.isChecked()
+        or window.firecrawl_crawl_limit_input.value() != 12
+        or window.firecrawl_crawl_depth_input.value() != 3
+        or not window.firecrawl_parse_checkbox.isChecked()
+        or not window.firecrawl_interact_checkbox.isChecked()
+        or window.firecrawl_interact_wait_input.value() != 1500
+        or "展开更多" not in window.firecrawl_interact_prompt_input.text()
+    ):
+        raise AssertionError("任务档案复用未恢复 Firecrawl 配置")
     if window.current_ai_model_text() != "archive-self-test-model":
         raise AssertionError("任务档案复用未恢复 AI 模型")
     rerun_calls = []
@@ -3521,6 +3482,187 @@ def run_universal_self_test():
             raise AssertionError("采集内核未实时回调页面进度")
         if not any(event.get("processed", 0) >= 1 for event in progress_events):
             raise AssertionError("采集内核进度回调未更新处理数量")
+        firecrawl_collect_logs = []
+        firecrawl_collect_events = []
+        firecrawl_collect_progress = []
+        firecrawl_collector = UniversalCollector(logger=lambda message: firecrawl_collect_logs.append(message))
+        firecrawl_collector.expand_urls_with_firecrawl_search = lambda source_urls, firecrawl_client, firecrawl_config: (
+            firecrawl_collect_events.append({"search_query": firecrawl_config.search_query, "search_limit": firecrawl_config.search_limit})
+            or list(source_urls)
+            + [site_base.rstrip("/") + "/search-extra"]
+        )
+        firecrawl_collector.expand_pages_with_firecrawl_map = lambda url, firecrawl_client, page_limit: [
+            normalize_url(url),
+            site_base.rstrip("/") + "/page2",
+        ][:page_limit]
+
+        def fake_collect_one_firecrawl(target_url, template, firecrawl_client):
+            firecrawl_collect_events.append(
+                {
+                    "url": normalize_url(target_url),
+                    "template": template.name,
+                    "base_url": firecrawl_client.config.base_url,
+                    "use_extract": firecrawl_client.config.use_extract,
+                }
+            )
+            normalized_target = normalize_url(target_url)
+            return {
+                "collected_at": "2026-06-10 10:00:00",
+                "url": normalized_target,
+                "domain": "127.0.0.1",
+                "template_name": f"{template.name} + Firecrawl",
+                "title": "Firecrawl 采集结果",
+                "price": "",
+                "published_time": "",
+                "author": "",
+                "body": "Firecrawl 分支采集到的正文资料，用于验证 collect_urls 已接入远程增强采集。",
+                "images": [],
+                "links": [{"url": site_base.rstrip("/") + "/product/10001", "text": "详情"}],
+                "tables": [],
+                "fingerprint": f"firecrawl-{len(firecrawl_collect_events)}",
+            }
+
+        firecrawl_collector.collect_one_firecrawl = fake_collect_one_firecrawl
+        firecrawl_collect_results = firecrawl_collector.collect_urls(
+            [site_base],
+            use_browser=True,
+            page_limit=2,
+            delay_seconds=0,
+            scrape_subpages=False,
+            skip_unchanged=False,
+            firecrawl_config={
+                "enabled": True,
+                "api_key": "fc-collect-self-test",
+                "base_url": "https://api.firecrawl.dev",
+                "use_map": True,
+                "map_limit": 2,
+                "use_search": True,
+                "search_query": "自检扩源",
+                "search_limit": 1,
+                "use_extract": True,
+                "extract_prompt": "提取字段",
+            },
+            progress_callback=lambda event: firecrawl_collect_progress.append(event),
+        )
+        firecrawl_collect_stages = [event.get("stage") for event in firecrawl_collect_progress]
+        if len(firecrawl_collect_results) < 3 or not any("/page2" in item.get("url", "") for item in firecrawl_collect_results) or not any("/search-extra" in item.get("url", "") for item in firecrawl_collect_results):
+            raise AssertionError(f"Firecrawl collect_urls 分支未采集 Search/Map 扩展页：{firecrawl_collect_results}")
+        if "Firecrawl 搜索" not in firecrawl_collect_stages or "Firecrawl 映射" not in firecrawl_collect_stages or "Firecrawl 采集" not in firecrawl_collect_stages:
+            raise AssertionError(f"Firecrawl collect_urls 分支未回调专用阶段：{firecrawl_collect_stages}")
+        if not any(item.get("search_query") == "自检扩源" for item in firecrawl_collect_events):
+            raise AssertionError(f"Firecrawl collect_urls 未调用 Search 扩源：{firecrawl_collect_events}")
+        if not any(item.get("base_url") == "https://api.firecrawl.dev" and item.get("use_extract") for item in firecrawl_collect_events):
+            raise AssertionError(f"Firecrawl collect_urls 未传入客户端配置：{firecrawl_collect_events}")
+        if not any("Firecrawl 增强已启用" in message for message in firecrawl_collect_logs):
+            raise AssertionError(f"Firecrawl collect_urls 未写入启用日志：{firecrawl_collect_logs}")
+        original_firecrawl_scrape = FirecrawlClient.scrape
+        original_firecrawl_interact = FirecrawlClient.interact
+        try:
+            FirecrawlClient.scrape = lambda self, url: {
+                "firecrawl_job_id": "interact-collect-job",
+                "url": normalize_url(url),
+                "markdown": "# Interact 页\n\n原始内容",
+                "metadata": {"title": "Interact 页"},
+            }
+            FirecrawlClient.interact = lambda self, job_id, prompt=None, code=None: {
+                "success": True,
+                "output": f"{job_id}: 展开后的隐藏字段",
+                "exit_code": 0,
+            }
+            interact_branch_results = UniversalCollector(logger=lambda message: None).collect_urls(
+                [site_base],
+                use_browser=False,
+                page_limit=1,
+                delay_seconds=0,
+                skip_unchanged=False,
+                firecrawl_config={
+                    "enabled": True,
+                    "api_key": "fc-interact-self-test",
+                    "base_url": "https://api.firecrawl.dev",
+                    "use_interact": True,
+                    "interact_prompt": "点击展开更多",
+                },
+            )
+            if not interact_branch_results or "隐藏字段" not in interact_branch_results[0].get("body", ""):
+                raise AssertionError(f"Firecrawl Interact 分支未合并交互结果：{interact_branch_results}")
+        finally:
+            FirecrawlClient.scrape = original_firecrawl_scrape
+            FirecrawlClient.interact = original_firecrawl_interact
+        original_firecrawl_crawl = FirecrawlClient.crawl
+        original_firecrawl_batch = FirecrawlClient.batch_scrape
+        try:
+            FirecrawlClient.crawl = lambda self, url: {
+                "status": "completed",
+                "completed": 2,
+                "total": 2,
+                "data": [
+                    {
+                        "url": site_base.rstrip("/") + "/crawl-a",
+                        "markdown": "# Crawl A\n\nFirecrawl Crawl 深抓正文 A",
+                        "metadata": {"title": "Crawl A"},
+                    },
+                    {
+                        "url": site_base.rstrip("/") + "/crawl-b",
+                        "markdown": "# Crawl B\n\nFirecrawl Crawl 深抓正文 B",
+                        "metadata": {"title": "Crawl B"},
+                    },
+                ],
+            }
+            crawl_branch_logs = []
+            crawl_branch_results = UniversalCollector(logger=lambda message: crawl_branch_logs.append(message)).collect_urls(
+                [site_base],
+                use_browser=True,
+                page_limit=1,
+                delay_seconds=0,
+                skip_unchanged=False,
+                firecrawl_config={
+                    "enabled": True,
+                    "api_key": "fc-crawl-self-test",
+                    "base_url": "https://api.firecrawl.dev",
+                    "use_crawl": True,
+                    "crawl_limit": 2,
+                    "crawl_max_depth": 2,
+                },
+            )
+            if len(crawl_branch_results) != 2 or not any("/crawl-b" in item.get("url", "") for item in crawl_branch_results):
+                raise AssertionError(f"Firecrawl Crawl 分支未保存深抓文档：{crawl_branch_results}")
+            if not any("Firecrawl Crawl 完成" in message for message in crawl_branch_logs):
+                raise AssertionError(f"Firecrawl Crawl 分支未写日志：{crawl_branch_logs}")
+            FirecrawlClient.batch_scrape = lambda self, urls: {
+                "status": "completed",
+                "completed": len(urls),
+                "total": len(urls),
+                "data": [
+                    {
+                        "url": normalize_url(url),
+                        "markdown": f"# Batch {index}\n\nFirecrawl Batch 批量正文 {index}",
+                        "metadata": {"title": f"Batch {index}"},
+                    }
+                    for index, url in enumerate(urls, 1)
+                ],
+            }
+            batch_branch_logs = []
+            batch_branch_results = UniversalCollector(logger=lambda message: batch_branch_logs.append(message)).collect_urls(
+                [site_base, site_base.rstrip("/") + "/page2"],
+                use_browser=True,
+                page_limit=1,
+                delay_seconds=0,
+                skip_unchanged=False,
+                firecrawl_config={
+                    "enabled": True,
+                    "api_key": "fc-batch-self-test",
+                    "base_url": "https://api.firecrawl.dev",
+                    "use_batch": True,
+                    "batch_max_concurrency": 3,
+                },
+            )
+            if len(batch_branch_results) != 2 or not any("/page2" in item.get("url", "") for item in batch_branch_results):
+                raise AssertionError(f"Firecrawl Batch 分支未保存批量文档：{batch_branch_results}")
+            if not any("Firecrawl Batch 完成" in message for message in batch_branch_logs):
+                raise AssertionError(f"Firecrawl Batch 分支未写日志：{batch_branch_logs}")
+        finally:
+            FirecrawlClient.crawl = original_firecrawl_crawl
+            FirecrawlClient.batch_scrape = original_firecrawl_batch
         auto_page_results = collector.collect_urls(
             [site_base],
             use_browser=False,

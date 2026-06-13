@@ -45,6 +45,18 @@ from core_ai_storage import (
     summarize_ai_call_log_rows,
     unprotect_secret,
 )
+from core_firecrawl import (
+    FirecrawlClient,
+    FirecrawlConfig,
+)
+from core_firecrawl_flow import (
+    collect_one_firecrawl as firecrawl_collect_one,
+    collect_with_firecrawl_batch,
+    collect_with_firecrawl_crawl,
+    expand_pages_with_firecrawl_map as firecrawl_expand_pages_with_map,
+    expand_urls_with_firecrawl_search as firecrawl_expand_urls_with_search,
+    record_from_firecrawl_document as firecrawl_record_from_document,
+)
 
 
 APP_NAME_EN = "UniversalWebCollector"
@@ -752,29 +764,88 @@ def compact_text(value, limit=500):
     return re.sub(r"\s+", " ", clean_text(value, limit)).strip()
 
 
+def safe_int(value, default=0, minimum=None, maximum=None):
+    try:
+        if isinstance(value, bool):
+            number = int(value)
+        elif isinstance(value, (int, float)):
+            number = int(value)
+        else:
+            text = str(value).strip()
+            number = int(float(text)) if text else int(default)
+    except Exception:
+        number = int(default)
+    if minimum is not None:
+        number = max(int(minimum), number)
+    if maximum is not None:
+        number = min(int(maximum), number)
+    return number
+
+
+def safe_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(default)
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "启用", "是"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "停用", "否"}:
+        return False
+    return bool(default)
+
+
+def safe_list(value, default=None):
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return list(default or [])
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return list(default or [])
+
+
+def safe_json_dumps(value, default=None, **kwargs):
+    try:
+        return json.dumps(value, **kwargs)
+    except Exception:
+        return json.dumps(default if default is not None else {}, **kwargs)
+
+
 def normalize_schedule_item(item):
     source = dict(item or {})
     schedule_id = clean_text(source.get("id") or "", 80)
     if not schedule_id:
         schedule_id = f"schedule-{int(time.time() * 1000)}"
-    interval_minutes = int(source.get("interval_minutes") or 30)
-    interval_minutes = max(1, min(1440, interval_minutes))
+    interval_minutes = safe_int(source.get("interval_minutes"), 30, 1, 1440)
     last_run_at = clean_text(source.get("last_run_at") or "", 40)
     next_run_at = clean_text(source.get("next_run_at") or "", 40)
     return {
         "id": schedule_id,
         "name": clean_text(source.get("name") or "未命名计划", 120),
-        "enabled": bool(source.get("enabled", True)),
+        "enabled": safe_bool(source.get("enabled", True), True),
         "interval_minutes": interval_minutes,
         "created_at": clean_text(source.get("created_at") or now_text(), 40),
         "updated_at": clean_text(source.get("updated_at") or now_text(), 40),
         "last_run_at": last_run_at,
         "next_run_at": next_run_at,
-        "run_count": int(source.get("run_count") or 0),
+        "run_count": safe_int(source.get("run_count"), 0, 0),
         "last_status": clean_text(source.get("last_status") or "待运行", 80),
         "last_message": clean_text(source.get("last_message") or "", 1000),
         "config": source.get("config") if isinstance(source.get("config"), dict) else {},
     }
+
+
+def _schedule_items_from_payload(payload):
+    if isinstance(payload, dict):
+        items = payload.get("schedules", [])
+    else:
+        items = payload
+    return [normalize_schedule_item(item) for item in items or [] if isinstance(item, dict)]
 
 
 def load_schedules(file_path=None):
@@ -782,21 +853,19 @@ def load_schedules(file_path=None):
     ensure_runtime_dirs()
     if not os.path.exists(file_path):
         return []
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-    except Exception as exc:
-        record_recoverable_error(
-            "读取任务计划失败，已使用空计划",
-            exc,
-            details={"file": file_path},
-        )
-        return []
-    if isinstance(payload, dict):
-        items = payload.get("schedules", [])
-    else:
-        items = payload
-    return [normalize_schedule_item(item) for item in items if isinstance(item, dict)]
+    for candidate, is_backup in ((file_path, False), (f"{file_path}.bak", True)):
+        if not os.path.exists(candidate):
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                return _schedule_items_from_payload(json.load(f))
+        except Exception as exc:
+            record_recoverable_error(
+                "读取任务计划备份失败" if is_backup else "读取任务计划失败，正在尝试备份",
+                exc,
+                details={"file": candidate},
+            )
+    return []
 
 
 def save_schedules(schedules, file_path=None):
@@ -804,8 +873,18 @@ def save_schedules(schedules, file_path=None):
     ensure_runtime_dirs()
     rows = [normalize_schedule_item(item) for item in schedules or [] if isinstance(item, dict)]
     temp_path = f"{file_path}.tmp.{os.getpid()}"
+    backup_path = f"{file_path}.bak"
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump({"schedules": rows}, f, ensure_ascii=False, indent=2)
+    if os.path.exists(file_path):
+        try:
+            shutil.copy2(file_path, backup_path)
+        except Exception as exc:
+            record_recoverable_error(
+                "备份任务计划失败，已继续保存新计划",
+                exc,
+                details={"file": file_path, "backup": backup_path},
+            )
     os.replace(temp_path, file_path)
     return rows
 
@@ -2043,7 +2122,17 @@ def extract_text_from_pdf(file_path):
     return clean_text("\n\n".join(pages), 50000)
 
 
-def ai_extract_file_to_table(file_path, instruction="", settings=None):
+def ai_extract_file_to_table(file_path, instruction="", settings=None, firecrawl_config=None):
+    firecrawl = FirecrawlConfig.from_dict(firecrawl_config)
+    if firecrawl.enabled and firecrawl.use_parse and firecrawl.is_usable():
+        try:
+            return FirecrawlClient(firecrawl).parse_file_to_table(file_path, instruction=instruction)
+        except Exception as exc:
+            record_recoverable_error(
+                "Firecrawl Parse 文件解析失败，已改用本地/AI 文件提取",
+                exc,
+                details={"file_path": file_path},
+            )
     ext = os.path.splitext(file_path)[1].lower()
     client = AIClient(settings)
     if ext == ".pdf":
@@ -2153,8 +2242,14 @@ def download_images_from_records(records, target_dir, logger=None):
             )
             try:
                 request = Request(image_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+                max_bytes = 20 * 1024 * 1024
                 with urlopen(request, timeout=20) as response:
-                    data = response.read(20 * 1024 * 1024)
+                    content_length = response.headers.get("Content-Length")
+                    if content_length and int(content_length) > max_bytes:
+                        raise RuntimeError(f"图片超过 20MB，已跳过：{content_length} 字节")
+                    data = response.read(max_bytes + 1)
+                    if len(data) > max_bytes:
+                        raise RuntimeError("图片超过 20MB，已跳过以避免保存截断文件")
                     mime = response.headers.get_content_type()
             except Exception as exc:
                 row["error"] = str(exc)
@@ -2186,6 +2281,7 @@ class WebAgentExecutor:
         records = []
         screenshots = []
         with sync_playwright() as p:
+            close_target = None
             if keep_login_state:
                 os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
                 context = p.chromium.launch_persistent_context(
@@ -2199,45 +2295,49 @@ class WebAgentExecutor:
                 browser = p.chromium.launch(headless=headless)
                 page = browser.new_page(user_agent=DEFAULT_USER_AGENT)
                 close_target = browser
-            page.goto(start_url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
-            for raw_action in actions or []:
-                if not isinstance(raw_action, dict):
-                    continue
-                action = str(raw_action.get("type") or raw_action.get("action") or "").strip().lower()
-                if action not in self.ALLOWED_ACTIONS:
-                    self.logger(f"已跳过不支持动作：{action}")
-                    continue
-                selector = raw_action.get("selector") or ""
-                value = raw_action.get("value") or raw_action.get("text") or ""
-                self.logger(f"执行 Agent 动作：{action} {selector or value}")
-                if action == "goto":
-                    page.goto(normalize_url(value or raw_action.get("url") or start_url), wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
-                elif action == "click" and selector:
-                    page.locator(selector).first.click(timeout=8000)
-                elif action == "fill" and selector:
-                    page.locator(selector).first.fill(str(value), timeout=8000)
-                elif action == "wait":
-                    page.wait_for_timeout(int(raw_action.get("ms") or raw_action.get("milliseconds") or 1000))
-                elif action == "scroll":
-                    times = int(raw_action.get("times") or 1)
-                    for _ in range(max(1, min(times, 50))):
-                        page.mouse.wheel(0, int(raw_action.get("pixels") or 1600))
-                        page.wait_for_timeout(400)
-                elif action == "screenshot":
-                    target = raw_action.get("path") or os.path.join(DATA_DIR, f"agent_screenshot_{int(time.time())}.png")
-                    page.screenshot(path=target, full_page=True)
-                    screenshots.append(target)
-                elif action == "extract":
-                    template = SiteTemplate(
-                        name=raw_action.get("template_name") or "AI Agent 提取",
-                        field_rules=[
-                            FieldRule.from_dict(item)
-                            for item in raw_action.get("field_rules", [])
-                            if isinstance(item, dict)
-                        ],
-                    )
-                    records.append(UniversalExtractor(template).extract(page.content(), page.url))
-            close_target.close()
+            try:
+                page.goto(start_url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+                for raw_action in actions or []:
+                    if not isinstance(raw_action, dict):
+                        continue
+                    action = str(raw_action.get("type") or raw_action.get("action") or "").strip().lower()
+                    if action not in self.ALLOWED_ACTIONS:
+                        self.logger(f"已跳过不支持动作：{action}")
+                        continue
+                    selector = raw_action.get("selector") or ""
+                    value = raw_action.get("value") or raw_action.get("text") or ""
+                    self.logger(f"执行 Agent 动作：{action} {selector or value}")
+                    if action == "goto":
+                        page.goto(normalize_url(value or raw_action.get("url") or start_url), wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
+                    elif action == "click" and selector:
+                        page.locator(selector).first.click(timeout=8000)
+                    elif action == "fill" and selector:
+                        page.locator(selector).first.fill(str(value), timeout=8000)
+                    elif action == "wait":
+                        page.wait_for_timeout(safe_int(raw_action.get("ms") or raw_action.get("milliseconds"), 1000, 0, 60000))
+                    elif action == "scroll":
+                        times = safe_int(raw_action.get("times"), 1, 1, 50)
+                        pixels = safe_int(raw_action.get("pixels"), 1600, 100, 10000)
+                        for _ in range(times):
+                            page.mouse.wheel(0, pixels)
+                            page.wait_for_timeout(400)
+                    elif action == "screenshot":
+                        target = raw_action.get("path") or os.path.join(DATA_DIR, f"agent_screenshot_{int(time.time())}.png")
+                        page.screenshot(path=target, full_page=True)
+                        screenshots.append(target)
+                    elif action == "extract":
+                        template = SiteTemplate(
+                            name=raw_action.get("template_name") or "AI Agent 提取",
+                            field_rules=[
+                                FieldRule.from_dict(item)
+                                for item in raw_action.get("field_rules", [])
+                                if isinstance(item, dict)
+                            ],
+                        )
+                        records.append(UniversalExtractor(template).extract(page.content(), page.url))
+            finally:
+                if close_target:
+                    close_target.close()
         return {"records": records, "screenshots": screenshots}
 
 
@@ -3393,6 +3493,14 @@ class UniversalCollector:
     def log(self, message):
         self.logger(message)
 
+    def interruptible_delay(self, seconds, stop_requested=None):
+        end_time = time.time() + max(0, float(seconds or 0))
+        while time.time() < end_time:
+            if stop_requested and stop_requested():
+                return False
+            time.sleep(min(0.5, max(0, end_time - time.time())))
+        return True
+
     def collect_urls(
         self,
         urls: Iterable[str],
@@ -3409,6 +3517,7 @@ class UniversalCollector:
         stop_requested: Optional[Callable[[], bool]] = None,
         run_id=0,
         progress_callback: Optional[Callable[[dict], None]] = None,
+        firecrawl_config=None,
     ):
         urls = list(urls or [])
         results = []
@@ -3450,9 +3559,26 @@ class UniversalCollector:
             if normalized and normalized not in selected_subpages:
                 selected_subpages.append(normalized)
 
+        firecrawl = FirecrawlConfig.from_dict(firecrawl_config)
+        firecrawl_client = None
+        if firecrawl.enabled:
+            if firecrawl.is_usable():
+                firecrawl_client = FirecrawlClient(firecrawl)
+                self.log(
+                    "Firecrawl 增强已启用："
+                    f"{firecrawl.base_url}，格式={','.join(firecrawl.formats)}，"
+                    f"Map={'开' if firecrawl.use_map else '关'}，"
+                    f"Search={'开' if firecrawl.use_search else '关'}，"
+                    f"Extract={'开' if firecrawl.use_extract else '关'}，"
+                    f"Batch={'开' if firecrawl.use_batch else '关'}，"
+                    f"Crawl={'开' if firecrawl.use_crawl else '关'}。"
+                )
+            else:
+                self.log("Firecrawl 增强已启用但缺少 API Key，已改用本地采集。")
+
         browser_session = None
         effective_use_browser = bool(use_browser)
-        if use_browser:
+        if use_browser and firecrawl_client is None:
             try:
                 browser_session = self.open_browser_session(
                     keep_login_state=keep_login_state,
@@ -3468,6 +3594,53 @@ class UniversalCollector:
                 )
         try:
             emit_progress("准备采集")
+            if firecrawl_client and firecrawl.use_search and firecrawl.search_query:
+                emit_progress("Firecrawl 搜索")
+                urls = self.expand_urls_with_firecrawl_search(urls, firecrawl_client, firecrawl)
+                progress["total"] = max(progress["total"], len([item for item in urls if normalize_url(item)]))
+            if firecrawl_client and firecrawl.use_crawl:
+                crawl_result = collect_with_firecrawl_crawl(
+                    urls,
+                    firecrawl_client,
+                    self.template_store.choose_for_url,
+                    template_name,
+                    scroll_times,
+                    run_id,
+                    skip_unchanged,
+                    self.database,
+                    results,
+                    progress,
+                    emit_progress,
+                    self.record_from_firecrawl_document,
+                    stop_requested=stop_requested,
+                    logger=self.log,
+                    record_error=record_recoverable_error,
+                )
+                if crawl_result["completed_all"]:
+                    emit_progress("采集结束")
+                    return results
+                urls = crawl_result["fallback_urls"]
+                progress["total"] = max(progress["processed"] + len(urls), progress["total"])
+            if firecrawl_client and firecrawl.use_batch:
+                if collect_with_firecrawl_batch(
+                    urls,
+                    firecrawl_client,
+                    self.template_store.choose_for_url,
+                    template_name,
+                    scroll_times,
+                    run_id,
+                    skip_unchanged,
+                    self.database,
+                    results,
+                    progress,
+                    emit_progress,
+                    self.record_from_firecrawl_document,
+                    stop_requested=stop_requested,
+                    logger=self.log,
+                    record_error=record_recoverable_error,
+                ):
+                    emit_progress("采集结束")
+                    return results
             for raw_url in urls:
                 if stop_requested and stop_requested():
                     break
@@ -3480,29 +3653,58 @@ class UniversalCollector:
                 template.scroll_times = scroll_times
                 target_urls = [url]
                 if page_limit > 1:
-                    emit_progress("展开分页", url)
-                    target_urls = self.expand_pages(
-                        url,
-                        template,
-                        effective_use_browser,
-                        page_limit,
-                        keep_login_state=keep_login_state,
-                        browser_session=browser_session,
-                    )
+                    if firecrawl_client and firecrawl.use_map:
+                        emit_progress("Firecrawl 映射", url)
+                        target_urls = self.expand_pages_with_firecrawl_map(
+                            url,
+                            firecrawl_client,
+                            page_limit,
+                        )
+                    if len(target_urls) <= 1:
+                        emit_progress("展开分页", url)
+                        target_urls = self.expand_pages(
+                            url,
+                            template,
+                            effective_use_browser,
+                            page_limit,
+                            keep_login_state=keep_login_state,
+                            browser_session=browser_session,
+                        )
                     progress["total"] = max(progress["total"], progress["processed"] + len(target_urls))
                     emit_progress("分页完成", target_urls[-1] if target_urls else url)
                 for target_url in target_urls:
                     if stop_requested and stop_requested():
                         break
-                    emit_progress("采集页面", target_url)
-                    record = self.collect_one(
-                        target_url,
-                        template,
-                        effective_use_browser,
-                        scroll_times,
-                        keep_login_state=keep_login_state,
-                        browser_session=browser_session,
-                    )
+                    if firecrawl_client:
+                        emit_progress("Firecrawl 采集", target_url)
+                        try:
+                            record = self.collect_one_firecrawl(target_url, template, firecrawl_client)
+                        except Exception as exc:
+                            record_recoverable_error(
+                                "Firecrawl 采集失败，已改用本地采集",
+                                exc,
+                                logger=self.log,
+                                details={"url": target_url},
+                            )
+                            emit_progress("采集页面", target_url)
+                            record = self.collect_one(
+                                target_url,
+                                template,
+                                effective_use_browser,
+                                scroll_times,
+                                keep_login_state=keep_login_state,
+                                browser_session=browser_session,
+                            )
+                    else:
+                        emit_progress("采集页面", target_url)
+                        record = self.collect_one(
+                            target_url,
+                            template,
+                            effective_use_browser,
+                            scroll_times,
+                            keep_login_state=keep_login_state,
+                            browser_session=browser_session,
+                        )
                     record["run_id"] = int(run_id or 0)
                     self.database.save_record(record, skip_unchanged=skip_unchanged)
                     results.append(record)
@@ -3522,28 +3724,92 @@ class UniversalCollector:
                         for subpage_url in subpages:
                             if stop_requested and stop_requested():
                                 break
-                            emit_progress("采集子页面", subpage_url)
-                            sub_record = self.collect_one(
-                                subpage_url,
-                                template,
-                                effective_use_browser,
-                                scroll_times,
-                                keep_login_state=keep_login_state,
-                                browser_session=browser_session,
-                            )
+                            if firecrawl_client:
+                                emit_progress("Firecrawl 采集子页面", subpage_url)
+                                try:
+                                    sub_record = self.collect_one_firecrawl(subpage_url, template, firecrawl_client)
+                                except Exception as exc:
+                                    record_recoverable_error(
+                                        "Firecrawl 子页面采集失败，已改用本地采集",
+                                        exc,
+                                        logger=self.log,
+                                        details={"url": subpage_url},
+                                    )
+                                    emit_progress("采集子页面", subpage_url)
+                                    sub_record = self.collect_one(
+                                        subpage_url,
+                                        template,
+                                        effective_use_browser,
+                                        scroll_times,
+                                        keep_login_state=keep_login_state,
+                                        browser_session=browser_session,
+                                    )
+                            else:
+                                emit_progress("采集子页面", subpage_url)
+                                sub_record = self.collect_one(
+                                    subpage_url,
+                                    template,
+                                    effective_use_browser,
+                                    scroll_times,
+                                    keep_login_state=keep_login_state,
+                                    browser_session=browser_session,
+                                )
                             sub_record["run_id"] = int(run_id or 0)
                             self.database.save_record(sub_record, skip_unchanged=skip_unchanged)
                             results.append(sub_record)
                             emit_progress("子页面完成", subpage_url, increment=True, failed=bool(sub_record.get("error")))
                             visited.add(subpage_url)
                             if delay_seconds > 0:
-                                time.sleep(delay_seconds)
+                                if not self.interruptible_delay(delay_seconds, stop_requested):
+                                    break
                     if delay_seconds > 0:
-                        time.sleep(delay_seconds)
+                        if not self.interruptible_delay(delay_seconds, stop_requested):
+                            break
             emit_progress("采集结束")
             return results
         finally:
             self.close_browser_session(browser_session)
+
+    def expand_pages_with_firecrawl_map(self, url, firecrawl_client, page_limit):
+        return firecrawl_expand_pages_with_map(
+            url,
+            firecrawl_client,
+            page_limit,
+            logger=self.log,
+            record_error=record_recoverable_error,
+        )
+
+    def expand_urls_with_firecrawl_search(self, urls, firecrawl_client, firecrawl_config):
+        return firecrawl_expand_urls_with_search(
+            urls,
+            firecrawl_client,
+            firecrawl_config,
+            logger=self.log,
+            record_error=record_recoverable_error,
+        )
+
+    def collect_one_firecrawl(self, url, template, firecrawl_client):
+        return firecrawl_collect_one(
+            url,
+            template,
+            firecrawl_client,
+            logger=self.log,
+            compact_text=compact_text,
+            assess_record_completeness=assess_record_completeness,
+            record_error=record_recoverable_error,
+        )
+
+    def record_from_firecrawl_document(self, document, fallback_url, template, firecrawl_client=None):
+        return firecrawl_record_from_document(
+            document,
+            fallback_url,
+            template,
+            firecrawl_client=firecrawl_client,
+            logger=self.log,
+            compact_text=compact_text,
+            assess_record_completeness=assess_record_completeness,
+            record_error=record_recoverable_error,
+        )
 
     def selected_subpage_urls_for_parent(self, selected_subpages, parent_url, visited):
         parent_domain = url_domain(parent_url)

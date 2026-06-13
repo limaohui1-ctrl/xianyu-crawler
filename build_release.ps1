@@ -21,6 +21,14 @@ if (-not $OutputRoot) {
 }
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$hygieneScript = Join-Path $projectRoot "tools\verify_repo_hygiene.py"
+if (Test-Path -LiteralPath $hygieneScript) {
+    Write-Host "Running repository hygiene check..."
+    & python $hygieneScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Repository hygiene check failed. Clean tracked/generated artifacts before packaging."
+    }
+}
 $distRoot = if ($DistPath) {
     Resolve-Path -LiteralPath $DistPath
 } elseif (Test-Path -LiteralPath (Join-Path $projectRoot "dist\$appName")) {
@@ -88,7 +96,8 @@ $proofLines = @(
     "${proofTime}: $buildTime",
     "${proofExe}: $releaseExe",
     "${proofSource}: $distRoot",
-    "${proofShortcut}: OK"
+    "${proofShortcut}: OK",
+    "功能同步: 已包含自然语言全网爬取入口"
 )
 $proofLines | Set-Content -LiteralPath (Join-Path $releaseRoot $proofName) -Encoding UTF8
 

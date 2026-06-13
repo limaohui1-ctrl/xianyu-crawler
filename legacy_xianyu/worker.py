@@ -879,7 +879,6 @@ class XianyuMonitorWorker(QObject):
                     quality_reason = f"{platform_name} 搜索结果"
 
                 hit_count += 1
-                self.remember_hit(scanned_key)
                 stats["max_hit_page"] = max(
                     stats["max_hit_page"],
                     monitor_item.get("_page_number", 1),
@@ -903,13 +902,17 @@ class XianyuMonitorWorker(QObject):
                     f"价格：{price} | 理由：{quality_reason} | 链接：{item_url}"
                 )
                 self.item_found_signal.emit(hit)
-                self.toaster.show_toast(
-                    title=f"{platform_name} {level}：{keyword} {score}分",
-                    msg=f"价格：{price} 元\n{self.shorten_text(title, 36)}",
-                    duration=8,
-                    threaded=True,
-                )
-                time.sleep(1)
+                try:
+                    self.toaster.show_toast(
+                        title=f"{platform_name} {level}：{keyword} {score}分",
+                        msg=f"价格：{price} 元\n{self.shorten_text(title, 36)}",
+                        duration=8,
+                        threaded=True,
+                    )
+                except Exception as notify_exc:
+                    self.emit_log(f"桌面通知失败，已保留界面提醒：{notify_exc}")
+                self.remember_hit(scanned_key)
+                self.interruptible_sleep(1)
             except Exception as exc:
                 self.emit_log(f"解析单条商品异常：{exc}")
 

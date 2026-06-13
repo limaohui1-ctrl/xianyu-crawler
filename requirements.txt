@@ -1,0 +1,29 @@
+# 通用网站采集中心 — 运行依赖
+# Python 3.11+ required (tested on 3.11.15)
+#
+# Install: pip install -r requirements.txt
+# After install: python -m playwright install chromium
+
+# ── GUI framework ──
+PyQt6>=6.7,<7
+
+# ── web scraping ──
+beautifulsoup4>=4.12
+httpx>=0.27
+
+# ── Excel export ──
+openpyxl>=3.1
+
+# ── browser automation ──
+playwright>=1.45
+
+# ── PDF support (optional, for file-to-table extraction) ──
+PyPDF2>=3.0
+pypdf>=4.0
+
+# ── packaging (dev only, for building EXE) ──
+# Uncomment when building release:
+# pyinstaller>=6.0
+
+# ── Windows notification (legacy xianyu mode) ──
+# win10toast>=0.9  # uncomment if using legacy xianyu monitor

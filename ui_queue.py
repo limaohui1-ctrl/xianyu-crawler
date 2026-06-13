@@ -1,4 +1,6 @@
-"""Task queue, progress, and failure-recovery actions for the universal UI."""
+"""Queue management helpers."""
+
+from ui_registry import register
 
 import time
 
@@ -8,7 +10,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QTableWidgetItem
 
 from universal_core import classify_error
 
-
+@register("task_queue_snapshot")
 def task_queue_snapshot(self):
     snapshot = []
     for source in self.task_queue_rows:
@@ -27,6 +29,7 @@ def task_queue_snapshot(self):
             snapshot.append(item)
     return snapshot
 
+@register("persist_current_run_queue_snapshot")
 def persist_current_run_queue_snapshot(self):
     if not self.current_run_id:
         return
@@ -37,6 +40,7 @@ def persist_current_run_queue_snapshot(self):
     config["task_queue_saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     self.database.update_run_config(self.current_run_id, config)
 
+@register("estimated_task_queue")
 def estimated_task_queue(self, urls=None, runtime_overrides=None):
     urls = urls or self.urls_from_input()
     runtime_overrides = runtime_overrides or {}
@@ -48,6 +52,9 @@ def estimated_task_queue(self, urls=None, runtime_overrides=None):
         "selected_subpage_urls",
         self.selected_subpage_urls if self.subpage_checkbox.isChecked() else [],
     )
+    follow_link_content = bool(runtime_overrides.get("follow_link_content", False))
+    follow_link_limit = int(runtime_overrides.get("follow_link_limit", 0) or 0)
+    filter_pdf_media_links = bool(runtime_overrides.get("filter_pdf_media_links", False))
     for url in urls:
         queue.append({"status": "待处理", "type": "主页", "stage": "等待采集", "url": url})
         for page_index in range(2, page_limit + 1):
@@ -60,8 +67,16 @@ def estimated_task_queue(self, urls=None, runtime_overrides=None):
             if runtime_overrides.get("simple_auto_subpages"):
                 stage = f"普通模式轻量补全，{stage}"
             queue.append({"status": "预估", "type": "自动子页面", "stage": stage, "url": url})
+        if follow_link_content and follow_link_limit > 0:
+            link_stage = f"正文跟进 {follow_link_limit} 个"
+            if filter_pdf_media_links:
+                link_stage += "｜过滤PDF/图片"
+            else:
+                queue.append({"status": "预估", "type": "PDF文档", "stage": "发现网页内PDF时自动入队解析", "url": url})
+            queue.append({"status": "预估", "type": "详情链接正文", "stage": link_stage, "url": url})
     return queue
 
+@register("filtered_task_queue_rows")
 def filtered_task_queue_rows(self):
     status_filter = self.task_queue_status_filter.currentText() if hasattr(self, "task_queue_status_filter") else "全部状态"
     type_filter = self.task_queue_type_filter.currentText() if hasattr(self, "task_queue_type_filter") else "全部类型"
@@ -79,6 +94,7 @@ def filtered_task_queue_rows(self):
         rows.append(source)
     return rows
 
+@register("apply_task_queue_filters")
 def apply_task_queue_filters(self):
     self.task_queue_table.setRowCount(0)
     for source in self.filtered_task_queue_rows():
@@ -106,6 +122,7 @@ def apply_task_queue_filters(self):
     self.update_queue_summary()
     self.update_queue_detail_panel()
 
+@register("queue_status_counts")
 def queue_status_counts(self):
     counts = {}
     for source in self.task_queue_rows:
@@ -113,6 +130,7 @@ def queue_status_counts(self):
         counts[status] = counts.get(status, 0) + 1
     return counts
 
+@register("update_queue_summary")
 def update_queue_summary(self):
     if not hasattr(self, "queue_summary_label"):
         return
@@ -129,6 +147,7 @@ def update_queue_summary(self):
     self.queue_summary_label.setText(" | ".join(parts))
     self.refresh_failure_recovery_panel(counts)
 
+@register("refresh_failure_recovery_panel")
 def refresh_failure_recovery_panel(self, counts=None):
     if not hasattr(self, "failure_recovery_label"):
         return
@@ -149,12 +168,14 @@ def refresh_failure_recovery_panel(self, counts=None):
         f"失败自恢复：失败 {failed_count} 项，未完成 {incomplete_count} 项；主要问题：{category_text}。可重试失败项、复制错误、启用真实浏览器或调低速度。"
     )
 
+@register("enable_browser_recovery")
 def enable_browser_recovery(self):
     self.use_browser_checkbox.setChecked(True)
     self.append_log("失败自恢复：已启用真实浏览器采集。")
     self.refresh_failure_recovery_panel()
     return True
 
+@register("slow_down_recovery")
 def slow_down_recovery(self):
     next_delay = max(3, int(self.delay_input.value() or 0) + 2)
     self.delay_input.setValue(min(next_delay, self.delay_input.maximum()))
@@ -162,6 +183,7 @@ def slow_down_recovery(self):
     self.refresh_failure_recovery_panel()
     return True
 
+@register("selected_queue_row_data")
 def selected_queue_row_data(self, table=None):
     table = table or self.task_queue_table
     selected_rows = sorted({index.row() for index in table.selectedIndexes()})
@@ -175,6 +197,7 @@ def selected_queue_row_data(self, table=None):
         data[key] = item.text() if item else ""
     return data
 
+@register("update_queue_detail_panel")
 def update_queue_detail_panel(self):
     if not hasattr(self, "queue_detail_output"):
         return
@@ -194,6 +217,7 @@ def update_queue_detail_panel(self):
     ]
     self.queue_detail_output.setPlainText("\n".join(lines))
 
+@register("fill_queue_snapshot_table")
 def fill_queue_snapshot_table(self, table, rows, records=None):
     record_map = self.queue_record_summary(records or [])
     table.setRowCount(0)
@@ -215,10 +239,12 @@ def fill_queue_snapshot_table(self, table, rows, records=None):
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, column, item)
 
+@register("fill_task_queue_table")
 def fill_task_queue_table(self, rows):
     self.task_queue_rows = [dict(row) for row in rows]
     self.apply_task_queue_filters()
 
+@register("queue_record_summary")
 def queue_record_summary(self, records):
     summary = {}
     for record in records or []:
@@ -231,6 +257,7 @@ def queue_record_summary(self, records):
             item["error"] = record.get("error", "")
     return summary
 
+@register("update_queue_result_summary_for_record")
 def update_queue_result_summary_for_record(self, record):
     url = record.get("url", "")
     if not url:
@@ -265,6 +292,7 @@ def update_queue_result_summary_for_record(self, record):
     self.apply_task_queue_filters()
     self.persist_current_run_queue_snapshot()
 
+@register("select_record_by_url")
 def select_record_by_url(self, table, url):
     for row in range(table.rowCount()):
         item = table.item(row, 1)
@@ -273,6 +301,7 @@ def select_record_by_url(self, table, url):
             return True
     return False
 
+@register("selected_queue_url")
 def selected_queue_url(self, table):
     selected_rows = sorted({index.row() for index in table.selectedIndexes()})
     if not selected_rows:
@@ -280,10 +309,12 @@ def selected_queue_url(self, table):
     item = table.item(selected_rows[0], 3)
     return item.text() if item else ""
 
+@register("selected_queue_error_text")
 def selected_queue_error_text(self, table=None):
     data = self.selected_queue_row_data(table or self.task_queue_table)
     return data.get("error", "")
 
+@register("view_selected_queue_result")
 def view_selected_queue_result(self):
     url = self.selected_queue_url(self.task_queue_table)
     if not url:
@@ -294,6 +325,7 @@ def view_selected_queue_result(self):
         return
     self.update_current_detail()
 
+@register("retry_selected_queue_item")
 def retry_selected_queue_item(self):
     url = self.selected_queue_url(self.task_queue_table)
     if not url:
@@ -303,6 +335,7 @@ def retry_selected_queue_item(self):
     self.append_log(f"已准备重试选中队列项：{url}")
     self.start_collecting()
 
+@register("copy_selected_queue_error")
 def copy_selected_queue_error(self):
     data = self.selected_queue_row_data(self.task_queue_table)
     if not data:
@@ -325,6 +358,7 @@ def copy_selected_queue_error(self):
     QApplication.processEvents()
     self.append_log("已复制队列错误详情。")
 
+@register("incomplete_queue_urls")
 def incomplete_queue_urls(self):
     urls = []
     seen = set()
@@ -341,6 +375,7 @@ def incomplete_queue_urls(self):
         urls.append(url)
     return urls
 
+@register("has_timeout_queue_failure")
 def has_timeout_queue_failure(self):
     for source in self.task_queue_rows:
         if source.get("status") != "失败":
@@ -350,6 +385,7 @@ def has_timeout_queue_failure(self):
             return True
     return False
 
+@register("retry_incomplete_queue_items")
 def retry_incomplete_queue_items(self):
     urls = self.incomplete_queue_urls()
     if not urls:
@@ -359,6 +395,7 @@ def retry_incomplete_queue_items(self):
     self.append_log(f"已准备重试 {len(urls)} 个失败/未完成网址。")
     self.start_collecting()
 
+@register("estimate_current_task")
 def estimate_current_task(self):
     urls = self.urls_from_input()
     if not urls:
@@ -379,6 +416,7 @@ def estimate_current_task(self):
         }
     )
 
+@register("update_collect_progress")
 def update_collect_progress(self, progress):
     progress = progress or {}
     self.current_run_progress = progress
@@ -423,6 +461,7 @@ def update_collect_progress(self, progress):
     if current_url or stage:
         self.update_task_queue_progress(progress)
 
+@register("update_task_queue_progress")
 def update_task_queue_progress(self, progress):
     stage = progress.get("stage", "")
     current_url = progress.get("current_url", "")

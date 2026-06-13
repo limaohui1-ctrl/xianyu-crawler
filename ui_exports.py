@@ -1,18 +1,20 @@
 """Export and spreadsheet-copy actions for the universal UI."""
 
-import json
-import os
+from ui_registry import register
 
 from PyQt6.QtGui import QClipboard
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+import json
 from universal_core import export_records, export_table_data, records_to_tsv
-from ui_export_utils import selected_export_path
+from core_export import export_records, export_table_data, records_to_tsv
+from ui_export_utils import export_default_path, selected_export_path
 
-
+@register("export_current_results")
 def export_current_results(self):
     self.export_records_dialog(self.records, "导出本次采集结果")
 
+@register("copy_records_to_sheets")
 def copy_records_to_sheets(self, records, label="采集结果"):
     if not records:
         QMessageBox.information(self, "提示", "没有可复制的数据。")
@@ -28,15 +30,19 @@ def copy_records_to_sheets(self, records, label="采集结果"):
         self.result_export_hint_label.setText(f"导出引导：已复制 {len(records)} 条，可粘贴到 Google Sheets 或 Excel")
     return True
 
+@register("copy_current_results_to_sheets")
 def copy_current_results_to_sheets(self):
     return self.copy_records_to_sheets(self.records, "本次采集结果")
 
+@register("export_history_results")
 def export_history_results(self):
     self.export_records_dialog(self.database.recent_records(10000), "导出历史数据")
 
+@register("copy_history_results_to_sheets")
 def copy_history_results_to_sheets(self):
     self.copy_records_to_sheets(self.database.recent_records(10000), "历史采集结果")
 
+@register("export_change_alerts")
 def export_change_alerts(self):
     if not self.change_alert_rows:
         self.refresh_change_alerts(silent=True)
@@ -46,7 +52,7 @@ def export_change_alerts(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出变更提醒",
-        os.path.join(os.getcwd(), "网页监控变更提醒.xlsx"),
+        export_default_path("网页监控变更提醒.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -59,6 +65,7 @@ def export_change_alerts(self):
         return
     QMessageBox.information(self, "导出成功", f"已导出：\n{file_path}")
 
+@register("export_change_report")
 def export_change_report(self):
     if not self.change_report_rows:
         self.generate_change_report()
@@ -70,7 +77,7 @@ def export_change_report(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出变更报告",
-        os.path.join(os.getcwd(), "网页监控变更报告.xlsx"),
+        export_default_path("网页监控变更报告.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -83,6 +90,7 @@ def export_change_report(self):
         return
     QMessageBox.information(self, "导出成功", f"已导出：\n{file_path}")
 
+@register("export_change_alerts_to_file")
 def export_change_alerts_to_file(self, file_path):
     if not self.change_alert_rows:
         self.refresh_change_alerts(silent=True)
@@ -90,6 +98,7 @@ def export_change_alerts_to_file(self, file_path):
     rows = [[item.get(column, "") for column in columns] for item in self.change_alert_rows]
     return export_table_data(file_path, columns, rows, sheet_name="变更提醒")
 
+@register("export_run_records")
 def export_run_records(self):
     if not self.run_records:
         self.run_records = self.database.recent_runs(1000)
@@ -117,7 +126,7 @@ def export_run_records(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出任务运行档案",
-        os.path.join(os.getcwd(), "任务运行档案.xlsx"),
+        export_default_path("任务运行档案.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv);;JSON 文件 (*.json)",
     )
     if not file_path:
@@ -130,6 +139,7 @@ def export_run_records(self):
         return
     QMessageBox.information(self, "导出成功", f"已导出：\n{file_path}")
 
+@register("export_selected_run_results")
 def export_selected_run_results(self):
     run = self.selected_run_record()
     if not run:
@@ -143,7 +153,7 @@ def export_selected_run_results(self):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         "导出当前任务结果",
-        os.path.join(os.getcwd(), default_name),
+        export_default_path(default_name),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv)",
     )
     if not file_path:
@@ -156,6 +166,7 @@ def export_selected_run_results(self):
         return
     QMessageBox.information(self, "导出成功", f"已导出：\n{file_path}")
 
+@register("export_records_dialog")
 def export_records_dialog(self, records, title):
     if not records:
         QMessageBox.information(self, "提示", "没有可导出的数据。")
@@ -163,7 +174,7 @@ def export_records_dialog(self, records, title):
     file_path, selected = QFileDialog.getSaveFileName(
         self,
         title,
-        os.path.join(os.getcwd(), "通用采集结果.xlsx"),
+        export_default_path("通用采集结果.xlsx"),
         "Excel 文件 (*.xlsx);;CSV 文件 (*.csv)",
     )
     if not file_path:
