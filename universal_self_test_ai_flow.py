@@ -223,8 +223,10 @@ def verify_ai_workflow(window, settings, html, data_dir, self_test_stage):
         raise AssertionError("自然语言任务计划未应用成功")
     if window.template_combo.currentText() != "AI 自检模板" or window.page_limit_input.value() != 2:
         raise AssertionError("自然语言任务计划未写入模板或采集参数")
-    if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-        raise AssertionError("自然语言任务计划应用后不应离开统一普通界面")
+    if not window.expert_mode_enabled:
+        raise AssertionError("自然语言任务计划应用后应切换到专家模式")
+    if window.tabs.tabText(window.tabs.currentIndex()) != "批量采集":
+        raise AssertionError("自然语言任务计划应用后应定位到批量采集页")
 
     window.apply_ai_fields(suggested)
     if window.ai_suggest_table.rowCount() < 2:

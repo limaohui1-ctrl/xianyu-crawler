@@ -2,6 +2,7 @@
 
 from ui_registry import register
 
+import os
 import time
 
 from PyQt6.QtCore import QTimer, Qt
@@ -14,6 +15,9 @@ from universal_core import (
     safe_int,
     save_schedules,
     schedule_next_run_text,
+)
+from core_urls import (
+    normalize_url,
 )
 from core_firecrawl import (
     safe_int,
@@ -83,7 +87,7 @@ def selected_schedule_index(self):
     return -1
 
 @register("add_schedule_from_current_config")
-def add_schedule_from_current_config(self, minutes=None):
+def add_schedule_from_current_config(self, minutes=None, skip_confirmation=False):
     urls = self.urls_from_input()
     if not urls:
         QMessageBox.information(self, "提示", "请先输入至少一个网址。")
@@ -92,8 +96,33 @@ def add_schedule_from_current_config(self, minutes=None):
         minutes, ok = self.simple_int_dialog("新增计划采集", "每隔多少分钟自动采集一次当前任务？", 30, 1, 1440)
         if not ok:
             return None
+    minutes = int(minutes or 30)
     config = self.current_run_config(urls)
     name = f"{self.selected_template_name()}｜{len(urls)} 个网址"
+    # 定时任务风险确认
+    if not skip_confirmation and os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST") != "1":
+        risks = self.run_preflight_check()
+        domain_count = len(urls)
+        risk_summary = self.risk_summary_text(risks)
+        summary_lines = [
+            f"任务名称：{name}",
+            f"运行间隔：每 {minutes} 分钟一次",
+            f"目标网址：{len(urls)} 个",
+            f"风险检查：{risk_summary}",
+            "",
+            "软件需保持运行才能定时采集。",
+            "确认创建此定时任务吗？",
+        ]
+        answer = QMessageBox.question(
+            self,
+            "创建定时采集",
+            "\n".join(summary_lines),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.append_log("用户取消：未创建定时采集。")
+            return None
     item = new_schedule_item(name, int(minutes or 30), config)
     self.schedules.append(item)
     self.save_schedule_state()

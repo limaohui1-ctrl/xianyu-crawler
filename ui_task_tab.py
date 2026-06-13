@@ -54,7 +54,7 @@ def build_task_tab(self):
 
     self.url_input = QTextEdit()
     self.url_input.setPlaceholderText("每行一个网址，例如：https://example.com/article/1")
-    self.url_input.setPlainText("https://example.com/")
+    self.url_input.setPlainText("")
     self.import_url_button = QPushButton("导入网址")
     self.import_url_button.clicked.connect(self.import_urls)
     self.template_combo = QComboBox()

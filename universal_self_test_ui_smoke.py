@@ -35,8 +35,10 @@ def verify_collect_wizard_smoke(window):
         raise AssertionError("2 次点击准备采集失败")
     if "新手流程：" not in window.new_user_flow_label.text() or "2 AI 准备：进行中" not in window.new_user_flow_label.text():
         raise AssertionError("新手流程未展示 AI 准备阶段")
-    if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-        raise AssertionError("2 次点击准备后不应离开统一普通界面")
+    if not window.expert_mode_enabled:
+        raise AssertionError("2 次点击准备后应切换到专家模式")
+    if window.tabs.tabText(window.tabs.currentIndex()) != "批量采集":
+        raise AssertionError("2 次点击准备后应定位到批量采集页")
     if window.template_combo.currentText() != "电商商品页":
         raise AssertionError("2 次点击准备后未保留推荐模板")
     if window.task_queue_table.rowCount() < 1 or not window.task_queue_rows:

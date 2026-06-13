@@ -224,9 +224,9 @@ class UniversalMainWindow(QMainWindow):
         self.tabs.addTab(self.build_template_tab(), "模板库")
         self.tabs.addTab(self.build_history_tab(), "历史与监控")
         self.expert_tab_names = ["监控概览", "AI 抓取工作台", "批量采集", "模板库", "历史与监控"]
+        self.expert_mode_enabled = False
         layout.addWidget(self.tabs)
         self.set_expert_mode(False)
-        self.tabs.tabBar().hide()
 
         self.setCentralWidget(root)
 
@@ -241,25 +241,43 @@ class UniversalMainWindow(QMainWindow):
 
     def show_main_tab(self, tab_text):
         if tab_text != "一键采集" and tab_text in getattr(self, "expert_tab_names", []):
-            self.set_expert_mode(False)
-            return False
+            self.set_expert_mode(True)
+            return self.set_tab_by_text(getattr(self, "tabs", None), tab_text)
         return self.set_tab_by_text(getattr(self, "tabs", None), tab_text)
 
     def show_history_section(self, section_text):
+        if not hasattr(self, "history_sections_tabs"):
+            return False
+        for index in range(self.history_sections_tabs.count()):
+            if self.history_sections_tabs.tabText(index) == section_text:
+                self.history_sections_tabs.setCurrentIndex(index)
+                return True
         return False
 
     def set_expert_mode(self, enabled):
-        self.expert_mode_enabled = False
         if not hasattr(self, "tabs"):
             return
         for index in range(self.tabs.count()):
             tab_name = self.tabs.tabText(index)
             if tab_name in getattr(self, "expert_tab_names", []):
-                self.tabs.setTabVisible(index, False)
-        self.set_tab_by_text(self.tabs, "一键采集")
+                self.tabs.setTabVisible(index, bool(enabled))
+        if not enabled:
+            self.set_tab_by_text(self.tabs, "一键采集")
+        self.expert_mode_enabled = bool(enabled)
 
     def toggle_expert_mode(self):
-        self.set_expert_mode(False)
+        self.set_expert_mode(not self.expert_mode_enabled)
+        if hasattr(self, "simple_expert_toggle_button"):
+            self.simple_expert_toggle_button.setText("返回简单模式" if self.expert_mode_enabled else "专家模式")
+
+    def _make_button_separator(self):
+        from PyQt6.QtWidgets import QFrame
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("color:#d9d9d9;margin:0 2px;")
+        sep.setFixedWidth(1)
+        return sep
 
     def start_real_scrape_check(self):
         if self.real_scrape_check_thread:
@@ -822,15 +840,20 @@ class UniversalMainWindow(QMainWindow):
         title_stack = QVBoxLayout()
         title_label = QLabel("采集工作台")
         title_label.setObjectName("simplePageTitle")
-        subtitle_label = QLabel("输入网址和目标资料，采集完成后在右侧检查详情并保存结果")
+        subtitle_label = QLabel(f"输入网址和目标资料，采集完成后在右侧检查详情并保存结果 — {APP_VERSION}")
         subtitle_label.setObjectName("simplePageSubtitle")
         title_stack.addWidget(title_label)
         title_stack.addWidget(subtitle_label)
         self.simple_status_label = QLabel("准备就绪")
         self.simple_status_label.setObjectName("simpleStatusPill")
         self.simple_status_label.setWordWrap(True)
+        self.simple_expert_toggle_button = QPushButton("专家模式")
+        self.simple_expert_toggle_button.setObjectName("expertToggleButton")
+        self.simple_expert_toggle_button.setToolTip("切换查看高级功能：AI 工作台、批量采集、模板库、历史与监控")
+        self.simple_expert_toggle_button.clicked.connect(self.toggle_expert_mode)
         header_row.addLayout(title_stack, 1)
         header_row.addWidget(self.simple_status_label)
+        header_row.addWidget(self.simple_expert_toggle_button)
         layout.addLayout(header_row)
 
         self.simple_input_box = QGroupBox("采集任务")
@@ -842,8 +865,8 @@ class UniversalMainWindow(QMainWindow):
         self.simple_url_input = QTextEdit()
         self.simple_url_input.setMinimumHeight(82)
         self.simple_url_input.setMaximumHeight(110)
-        self.simple_url_input.setPlaceholderText("粘贴网址，一行一个")
-        self.simple_url_input.setPlainText("https://example.com/")
+        self.simple_url_input.setPlaceholderText("请粘贴网址，一行一个，例如：https://example.com/")
+        self.simple_url_input.setPlainText("")
         self.simple_goal_input = QTextEdit()
         self.simple_goal_input.setMinimumHeight(72)
         self.simple_goal_input.setMaximumHeight(96)
@@ -851,6 +874,7 @@ class UniversalMainWindow(QMainWindow):
         self.simple_start_button = QPushButton("确认并采集")
         self.simple_start_button.setObjectName("primaryButton")
         self.simple_stop_button = QPushButton("停止")
+        self.simple_stop_button.setObjectName("stopButton")
         self.simple_stop_button.setEnabled(False)
         self.simple_ai_suggest_button = QPushButton("AI 建议列")
         self.simple_export_button = QPushButton("自动保存")
@@ -871,8 +895,11 @@ class UniversalMainWindow(QMainWindow):
         self.simple_real_check_button = QPushButton("真实自检")
         self.simple_depth_combo = QComboBox()
         self.simple_depth_combo.addItem("普通", "normal")
+        self.simple_depth_combo.setItemData(0, "单页读取 + 最多 3 个同站详情页", Qt.ItemDataRole.ToolTipRole)
         self.simple_depth_combo.addItem("深度", "deep")
+        self.simple_depth_combo.setItemData(1, "翻页 3 页 + 最多 12 个同站详情页（推荐）", Qt.ItemDataRole.ToolTipRole)
         self.simple_depth_combo.addItem("完整", "complete")
+        self.simple_depth_combo.setItemData(2, "翻页 5 页 + 最多 30 个同站详情页（最全但较慢）", Qt.ItemDataRole.ToolTipRole)
         self.simple_depth_combo.setCurrentIndex(1)
         self.simple_depth_combo.currentIndexChanged.connect(self.on_simple_depth_changed)
         self.simple_start_button.clicked.connect(self.simple_prepare_and_start_collect)
@@ -942,40 +969,71 @@ class UniversalMainWindow(QMainWindow):
         self.simple_diagnosis_label = QLabel("诊断建议：等待结果")
         self.simple_diagnosis_label.setObjectName("simpleSummaryText")
         self.simple_diagnosis_label.setWordWrap(True)
-        status_layout.addWidget(self.simple_diagnosis_label)
+
+        self.simple_dry_run_button = QPushButton("模拟运行")
+        self.simple_dry_run_button.setToolTip("检查配置、预估任务，但不实际发起网络请求")
+        self.simple_dry_run_button.clicked.connect(self.simple_dry_run)
+
+        self.simple_sample_verify_label = QLabel("抽样验证：等待样本")
+        self.simple_sample_verify_label.setObjectName("simpleSummaryText")
+        self.simple_sample_verify_label.setWordWrap(True)
+
+        self.simple_strategy_compare_label = QLabel("实测对比：等待两种策略样本")
+        self.simple_strategy_compare_label.setObjectName("simpleSummaryText")
+        self.simple_strategy_compare_label.setWordWrap(True)
+
+        self.simple_discovery_label = QLabel("发现记录：等待采集")
+        self.simple_discovery_label.setObjectName("simpleSummaryText")
+        self.simple_discovery_label.setWordWrap(True)
 
         self.simple_repair_plan_label = QLabel("修复方案：等待诊断")
         self.simple_repair_plan_label.setObjectName("simpleSummaryText")
         self.simple_repair_plan_label.setWordWrap(True)
         status_layout.addWidget(self.simple_repair_plan_label)
+        # 修复工具默认折叠
+        repair_box = QGroupBox("修复工具")
+        repair_box.setCheckable(True)
+        repair_box.setChecked(False)
+        repair_box.setToolTip("展开查看分页、子链接、登录、字段修复工具")
+        repair_box_layout = QVBoxLayout(repair_box)
         repair_actions = QHBoxLayout()
         repair_actions.addWidget(self.simple_fix_pagination_button)
         repair_actions.addWidget(self.simple_fix_subpages_button)
         repair_actions.addWidget(self.simple_fix_login_button)
         repair_actions.addWidget(self.simple_fix_fields_button)
         repair_actions.addStretch(1)
-        status_layout.addLayout(repair_actions)
+        repair_box_layout.addLayout(repair_actions)
+        self.bind_collapsible_groupbox(repair_box, checked=False)
+        status_layout.addWidget(repair_box)
 
-        self.simple_sample_verify_label = QLabel("抽样验证：等待样本")
-        self.simple_sample_verify_label.setObjectName("simpleSummaryText")
-        self.simple_sample_verify_label.setWordWrap(True)
-        status_layout.addWidget(self.simple_sample_verify_label)
-
-        self.simple_strategy_compare_label = QLabel("实测对比：等待两种策略样本")
-        self.simple_strategy_compare_label.setObjectName("simpleSummaryText")
-        self.simple_strategy_compare_label.setWordWrap(True)
-        status_layout.addWidget(self.simple_strategy_compare_label)
-
-        self.simple_discovery_label = QLabel("发现记录：等待采集")
-        self.simple_discovery_label.setObjectName("simpleSummaryText")
-        self.simple_discovery_label.setWordWrap(True)
-        status_layout.addWidget(self.simple_discovery_label)
+        # 诊断与高级工具默认折叠
+        advanced_box = QGroupBox("诊断与验证")
+        advanced_box.setCheckable(True)
+        advanced_box.setChecked(False)
+        advanced_box.setToolTip("展开查看诊断建议、抽样验证、实测对比")
+        advanced_box_layout = QVBoxLayout(advanced_box)
+        advanced_box_layout.addWidget(self.simple_diagnosis_label)
+        dry_run_row = QHBoxLayout()
+        dry_run_row.addWidget(self.simple_dry_run_button)
+        dry_run_row.addStretch(1)
+        advanced_box_layout.addLayout(dry_run_row)
+        advanced_box_layout.addWidget(self.simple_sample_verify_label)
+        advanced_box_layout.addWidget(self.simple_strategy_compare_label)
+        advanced_box_layout.addWidget(self.simple_discovery_label)
+        self.bind_collapsible_groupbox(advanced_box, checked=False)
+        status_layout.addWidget(advanced_box)
         layout.addWidget(status_box)
 
         self.simple_ai_box = QGroupBox("AI 设置")
         ai_box = self.simple_ai_box
         ai_box.setCheckable(True)
         ai_box.setChecked(False)
+        self.simple_ai_guide_label = QLabel("展开配置 AI 以启用智能分析、字段建议和自动修复")
+        self.simple_ai_guide_label.setObjectName("simpleGuideHint")
+        self.simple_ai_guide_label.setWordWrap(True)
+        self.simple_ai_guide_label.setStyleSheet(
+            "color:#6b7280;font-size:12px;padding:2px 8px;"
+        )
         ai_layout = QGridLayout(ai_box)
         self.simple_ai_provider_combo = QComboBox()
         for provider, preset in AI_PROVIDER_PRESETS.items():
@@ -1004,6 +1062,14 @@ class UniversalMainWindow(QMainWindow):
         ai_layout.addLayout(ai_tools_row, 2, 1, 1, 4)
         self.bind_collapsible_groupbox(ai_box, checked=False)
         self.load_simple_ai_settings_to_ui()
+        # 折叠时显示引导提示，展开时隐藏
+        ai_box.toggled.connect(lambda checked: self.simple_ai_guide_label.setVisible(not checked))
+        ai_container = QWidget()
+        ai_container_layout = QVBoxLayout(ai_container)
+        ai_container_layout.setContentsMargins(0, 0, 0, 0)
+        ai_container_layout.setSpacing(4)
+        ai_container_layout.addWidget(self.simple_ai_guide_label)
+        ai_container_layout.addWidget(ai_box)
 
         self.simple_column_card_box = QGroupBox("准备抓取的列")
         self.simple_column_card_box.setCheckable(True)
@@ -1027,6 +1093,8 @@ class UniversalMainWindow(QMainWindow):
         self.bind_collapsible_groupbox(self.simple_column_card_box, checked=False)
 
         self.simple_result_table = self.create_simple_result_table()
+        self.simple_result_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.simple_result_table.customContextMenuRequested.connect(self.on_result_table_context_menu)
         self.simple_result_table.itemSelectionChanged.connect(self.update_current_detail)
         self.simple_result_table.itemSelectionChanged.connect(self.update_simple_result_preview)
         result_box = QGroupBox("采集结果")
@@ -1118,9 +1186,9 @@ class UniversalMainWindow(QMainWindow):
         right_splitter = QSplitter(Qt.Orientation.Vertical)
         right_splitter.addWidget(preview_box)
         right_splitter.addWidget(self.simple_column_card_box)
-        right_splitter.addWidget(ai_box)
+        right_splitter.addWidget(ai_container)
         right_splitter.addWidget(recent_box)
-        right_splitter.setSizes([240, 80, 70, 80])
+        right_splitter.setSizes([280, 60, 60, 60])
 
         self.simple_main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.simple_main_splitter.addWidget(left_splitter)
@@ -1180,14 +1248,20 @@ class UniversalMainWindow(QMainWindow):
                 font-weight: 400;
             }
             QPushButton {
-                background: #ffffff;
-                border: 1px solid #cbd5e1;
+                background: #fafbfc;
+                border: 1px solid #d1d5db;
+                border-bottom: 2px solid #d1d5db;
                 border-radius: 4px;
                 padding: 6px 10px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: #f1f5f9;
+                background: #f0f2f5;
+                border-bottom-color: #9ca3af;
+            }
+            QPushButton:pressed {
+                background: #e5e7eb;
+                border-bottom: 1px solid #d1d5db;
             }
             QPushButton#primaryButton {
                 background: #2563eb;
@@ -1196,6 +1270,21 @@ class UniversalMainWindow(QMainWindow):
             }
             QPushButton#primaryButton:hover {
                 background: #1d4ed8;
+            }
+            QPushButton#stopButton {
+                background: #dc2626;
+                border: 1px solid #b91c1c;
+                color: #ffffff;
+                font-weight: 700;
+            }
+            QPushButton#stopButton:disabled {
+                background: #f5f5f5;
+                border: 1px solid #d9d9d9;
+                color: #bfbfbf;
+                font-weight: 600;
+            }
+            QPushButton#stopButton:hover {
+                background: #b91c1c;
             }
             QHeaderView::section {
                 background: #f8fafc;
@@ -1656,6 +1745,35 @@ class UniversalMainWindow(QMainWindow):
         self.subpage_checkbox.setChecked(False)
         self.subpage_limit_input.setValue(0)
         self.selected_subpage_urls = []
+        # 一键采集风险确认：先检查风险，再征求用户确认
+        risks = self.run_preflight_check()
+        high_count = sum(1 for item in risks if item.get("级别") in ("高", "需处理"))
+        if high_count and os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST") != "1":
+            domain_count = len({normalize_url(url) for url in urls if normalize_url(url)})
+            est_requests = len(urls) * depth_config["page_limit"] * (depth_config["subpage_limit"] + 1)
+            summary_lines = [
+                f"采集模式：{depth_config['label']}",
+                f"目标网址：{len(urls)} 个（涉及 {domain_count} 个不同域名）",
+                f"预估请求：约 {est_requests} 次",
+                f"检查结果：{self.risk_summary_text(risks)}",
+                "",
+                "确认开始采集吗？可在专家模式中查看详细风险。",
+            ]
+            answer = QMessageBox.question(
+                self,
+                "开始前风险确认",
+                "\n".join(summary_lines),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.append_log("用户取消：开始前风险确认未通过，本次采集未启动。")
+                if hasattr(self, "simple_status_label"):
+                    self.simple_status_label.setText("已取消采集")
+                if hasattr(self, "simple_progress_label"):
+                    self.simple_progress_label.setText("流程：输入网址 -> 开始采集 -> 导出结果")
+                self.set_simple_flow_step("输入")
+                return False
         if hasattr(self, "simple_status_label"):
             self.simple_status_label.setText(f"正在{depth_config['label']}采集网页资料")
         if hasattr(self, "simple_progress_label"):
@@ -1677,6 +1795,37 @@ class UniversalMainWindow(QMainWindow):
                 "simple_collect_depth": depth_config["label"],
             },
         )
+        return True
+
+    def simple_dry_run(self):
+        if self.worker:
+            if hasattr(self, "simple_status_label"):
+                self.simple_status_label.setText("正在采集，无法模拟运行")
+            return False
+        urls = self.urls_from_input()
+        if not urls:
+            urls = self.simple_input_lines()
+        if not urls:
+            self.simple_information("提示", "请先输入至少一个网址。")
+            return False
+        self.sync_simple_inputs_to_background()
+        depth_config = self.simple_collect_depth_config()
+        risks = self.run_preflight_check()
+        queue = self.estimated_task_queue(urls)
+        self.fill_task_queue_table(queue)
+        est_requests = len(queue)
+        domain_count = len({normalize_url(url) for url in urls if normalize_url(url)})
+        high_count = sum(1 for item in risks if item.get("级别") in ("高", "需处理"))
+        summary_lines = [
+            f"模拟运行结果：{self.risk_summary_text(risks)}",
+            f"模式：{depth_config['label']} | 网址 {len(urls)} 个 | 域名 {domain_count} 个",
+            f"预估队列项：{est_requests} 项（含主页、分页、子页面）",
+            f"高风险项：{high_count} 个" if high_count else "高风险项：无",
+            "提示：以上为预估，未实际发起网络请求。查看队列详情后点击「确认并采集」开始。",
+        ]
+        self.simple_status_label.setText(summary_lines[0])
+        self.simple_progress_label.setText(" | ".join(summary_lines[1:4]))
+        self.append_log("模拟运行完成：" + " | ".join(summary_lines))
         return True
 
     def set_simple_flow_step(self, active_step):
@@ -2884,6 +3033,8 @@ class UniversalMainWindow(QMainWindow):
         self.collect_progress_label.setWordWrap(True)
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
+        self.copy_log_button = QPushButton("复制全部日志")
+        self.copy_log_button.clicked.connect(self.copy_all_logs)
         self.task_queue_status_filter = QComboBox()
         self.task_queue_status_filter.addItems(["全部状态", "待处理", "预估", "运行中", "已完成", "失败", "未完成"])
         self.task_queue_type_filter = QComboBox()
@@ -2957,6 +3108,10 @@ class UniversalMainWindow(QMainWindow):
         preview_layout.addWidget(self.queue_detail_title_label)
         preview_layout.addWidget(self.queue_detail_output)
         preview_layout.addWidget(self.log_output)
+        log_copy_layout = QHBoxLayout()
+        log_copy_layout.addStretch(1)
+        log_copy_layout.addWidget(self.copy_log_button)
+        preview_layout.addLayout(log_copy_layout)
         preview_layout.addWidget(QLabel("抓取前风险/合规检查"))
         preview_layout.addWidget(self.risk_summary_label)
         preview_layout.addWidget(self.risk_table)
@@ -2988,6 +3143,8 @@ class UniversalMainWindow(QMainWindow):
         self.result_export_hint_label = QLabel("导出引导：采到结果后可导出 Excel 或复制到 Sheets")
         self.result_export_hint_label.setWordWrap(True)
         self.result_table = self.create_result_table()
+        self.result_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.result_table.customContextMenuRequested.connect(self.on_result_table_context_menu)
         self.result_table.itemSelectionChanged.connect(self.update_current_detail)
         result_splitter = QSplitter(Qt.Orientation.Horizontal)
         result_splitter.addWidget(self.result_table)
@@ -3422,6 +3579,78 @@ class UniversalMainWindow(QMainWindow):
             self.simple_status_label.setText(str(message))
         if hasattr(self, "ai_output"):
             self.ai_output.appendPlainText(str(message))
+
+    def copy_all_logs(self):
+        if hasattr(self, "log_output"):
+            QApplication.clipboard().setText(self.log_output.toPlainText())
+            self.append_log("[已复制全部日志到剪贴板]")
+
+    def on_result_table_context_menu(self, pos):
+        table = self.sender()
+        if not isinstance(table, QTableWidget):
+            return
+        row = table.rowAt(pos.y())
+        if row < 0 or row >= table.rowCount():
+            return
+        if not table.selectedIndexes():
+            table.selectRow(row)
+        menu = QTableWidget.createStandardContextMenu(self)
+        menu.addSeparator()
+        copy_row_action = menu.addAction("复制整行")
+        copy_row_action.triggered.connect(lambda: self._copy_selected_table_row(table, row))
+        open_url_action = menu.addAction("打开网址")
+        open_url_action.triggered.connect(lambda: self._open_selected_table_url(table, row))
+        export_selected_action = menu.addAction("导出选中行")
+        export_selected_action.triggered.connect(lambda: self._export_selected_table_rows(table))
+        menu.exec(table.viewport().mapToGlobal(pos))
+
+    def _copy_selected_table_row(self, table, row):
+        values = []
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            values.append(item.text() if item else "")
+        QApplication.clipboard().setText("\t".join(values))
+        self.append_log(f"[已复制第 {row + 1} 行到剪贴板]")
+
+    def _open_selected_table_url(self, table, row):
+        url = ""
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            if header and header.text() in ("网址", "链接", "url", "URL"):
+                item = table.item(row, col)
+                url = item.text() if item else ""
+                break
+        if not url and table.columnCount() >= 2:
+            item = table.item(row, 1)
+            url = item.text() if item else ""
+        if url and url.startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _export_selected_table_rows(self, table):
+        selected = set()
+        for index in table.selectedIndexes():
+            selected.add(index.row())
+        if not selected:
+            return
+        columns = []
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            columns.append(header.text() if header else f"列{col + 1}")
+        rows = []
+        for row in sorted(selected):
+            values = []
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                values.append(item.text() if item else "")
+            rows.append(values)
+        import csv, tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".csv", prefix="selected_rows_")
+        with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+            writer.writerows(rows)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        self.append_log(f"[已导出 {len(rows)} 行到临时 CSV]")
 
     def record_crawl_discovery_message(self, message):
         text = str(message or "")

@@ -434,12 +434,23 @@ def run_universal_self_test():
     window.simple_column_hidden.clear()
     window.simple_column_enabled.clear()
     window.refresh_simple_field_table()
-    if hasattr(window, "simple_expert_toggle_button"):
-        raise AssertionError("统一普通界面不应再暴露专家模式按钮")
+    if not hasattr(window, "simple_expert_toggle_button"):
+        raise AssertionError("普通界面应提供专家模式切换按钮")
+    if window.simple_expert_toggle_button.text() != "专家模式":
+        raise AssertionError("专家模式按钮默认文案应为'专家模式'")
+    # 验证切换专家模式后tab可见
+    window.toggle_expert_mode()
+    if not window.expert_mode_enabled:
+        raise AssertionError("点击专家模式按钮应切换到专家模式")
+    window.toggle_expert_mode()
+    if window.expert_mode_enabled:
+        raise AssertionError("再次点击专家模式按钮应返回简化模式")
     if window.simple_real_check_button.text() != "真实自检":
         raise AssertionError("普通人面板缺少真实抓取自检入口")
     if window.simple_depth_combo.currentData() != "deep":
         raise AssertionError("普通人一键采集应默认使用深度采集")
+    window.simple_url_input.setPlainText("https://example.com/")
+    window.url_input.setPlainText("https://example.com/")  # build_sample_verification_report uses url_input
     if "等待样本" not in window.build_sample_verification_report().get("summary", ""):
         raise AssertionError("普通人抽样验证空状态未提示等待样本")
     if not window.simple_ai_provider_combo.count() or not window.simple_ai_model_combo.count():
@@ -1287,10 +1298,10 @@ def run_universal_self_test():
         for index in range(window.tabs.count())
         if window.tabs.tabText(index) in getattr(window, "expert_tab_names", []) and window.tabs.isTabVisible(index)
     ]
-    if visible_expert_tabs:
-        raise AssertionError("统一普通界面不应显示复杂专家页")
-    if window.show_main_tab("历史与监控"):
-        raise AssertionError("统一普通界面不应跳转到复杂历史页")
+    if not visible_expert_tabs:
+        raise AssertionError("专家模式未显示专家页")
+    if not window.show_main_tab("历史与监控"):
+        raise AssertionError("专家模式下无法跳转到历史页")
     window.set_workspace_mode(True)
     visible_workspace_tabs = [
         window.tabs.tabText(index)
@@ -1502,8 +1513,8 @@ def run_universal_self_test():
         raise AssertionError("历史与监控页未展示变更提醒")
     if window.history_sections_tabs.tabText(4) != "计划采集":
         raise AssertionError("历史与监控页未展示计划采集")
-    if window.show_history_section("计划采集"):
-        raise AssertionError("统一普通界面不应跳转到复杂历史分区")
+    if not window.show_history_section("计划采集"):
+        raise AssertionError("历史页应能定位到计划采集子分区")
     window.refresh_overview()
     if "未读变更" not in window.overview_unread_label.text() or "计划采集" not in window.overview_schedule_label.text():
         raise AssertionError("监控概览指标未刷新")
@@ -2179,8 +2190,9 @@ def run_universal_self_test():
     if window.notify_unread_change_alerts(alert_count, window.change_alert_rows[0]):
         raise AssertionError("重复未读变更通知未去重")
     window.show_change_alerts_tab(unread_only=True)
-    if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-        raise AssertionError("变更通知不应离开统一普通界面")
+    # show_change_alerts_tab 切换的是历史子页，主 tab 不变
+    if not window.show_history_section("变更提醒"):
+        raise AssertionError("变更通知应能定位到变更提醒子页")
     if window.change_alert_filter_combo.currentText() != "未读":
         raise AssertionError("变更通知未切换未读筛选")
     window.change_alert_filter_combo.setCurrentText("全部提醒")
@@ -3150,8 +3162,10 @@ def run_universal_self_test():
             raise AssertionError("自然语言任务计划未应用成功")
         if window.template_combo.currentText() != "AI 自检模板" or window.page_limit_input.value() != 2:
             raise AssertionError("自然语言任务计划未写入模板或采集参数")
-        if window.tabs.tabText(window.tabs.currentIndex()) != "一键采集":
-            raise AssertionError("自然语言任务计划应用后不应离开统一普通界面")
+        if not window.expert_mode_enabled:
+            raise AssertionError("自然语言任务计划应用后应切换到专家模式")
+        if window.tabs.tabText(window.tabs.currentIndex()) != "批量采集":
+            raise AssertionError("自然语言任务计划应用后应定位到批量采集页")
         window.apply_ai_fields(suggested)
         if window.ai_suggest_table.rowCount() < 2:
             raise AssertionError("AI 建议列未进入确认表格")
