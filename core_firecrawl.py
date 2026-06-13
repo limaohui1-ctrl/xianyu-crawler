@@ -9,9 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from html import unescape
 from typing import Callable, Optional
-from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
@@ -260,28 +258,16 @@ class FirecrawlClient:
         return self.request_json("DELETE", endpoint, headers, None)
 
     def request_json(self, method, endpoint, headers, body):
+        from core_api_gateway import get_gateway, GatewayError
         url = self.endpoint_url(endpoint)
-        last_error = None
-        for attempt in range(max(1, self.config.max_retries)):
-            try:
-                request = Request(url, data=body, headers=headers, method=method)
-                with urlopen(request, timeout=self.config.timeout_seconds) as response:
-                    response_text = response.read().decode("utf-8", errors="replace")
-                return json.loads(response_text or "{}")
-            except HTTPError as exc:
-                response_text = exc.read().decode("utf-8", errors="replace")
-                last_error = RuntimeError(f"Firecrawl HTTP {exc.code}: {response_text or exc.reason}")
-                if exc.code == 502 and attempt + 1 < self.config.max_retries:
-                    time.sleep(0.5 * (2 ** attempt))
-                    continue
-                raise last_error
-            except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-                last_error = exc
-                if attempt + 1 < self.config.max_retries:
-                    time.sleep(0.5 * (2 ** attempt))
-                    continue
-                raise RuntimeError(f"Firecrawl 请求失败：{exc}") from exc
-        raise RuntimeError(f"Firecrawl 请求失败：{last_error}")
+        try:
+            # body is None | dict (JSON) | bytes (multipart) — gateway handles all
+            return get_gateway().request_json(
+                method, url, payload=body, headers=headers,
+                timeout=self.config.timeout_seconds,
+            )
+        except (GatewayError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Firecrawl 请求失败：{exc}") from exc
 
     def post_multipart(self, endpoint, fields, files):
         boundary = f"----UniversalFirecrawl{uuid.uuid4().hex}"

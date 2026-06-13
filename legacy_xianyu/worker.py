@@ -1413,21 +1413,32 @@ class XianyuMonitorWorker(QObject):
         if platform_key == "taobao":
             return self.goto_taobao_result_page(page, page_number)
 
-        try:
-            input_box = page.locator(PAGINATION_INPUT_SELECTOR).last
-            confirm_button = page.locator(PAGINATION_CONFIRM_SELECTOR).last
-            if input_box.count() == 0 or confirm_button.count() == 0:
-                self.emit_log("未找到分页跳转控件，本关键词只能扫描当前页。")
-                return False
+        for attempt in range(3):
+            try:
+                input_box = page.locator(PAGINATION_INPUT_SELECTOR).last
+                confirm_button = page.locator(PAGINATION_CONFIRM_SELECTOR).last
+                if input_box.count() == 0 or confirm_button.count() == 0:
+                    self.emit_log("未找到分页跳转控件，本关键词只能扫描当前页。")
+                    return False
 
-            self.emit_log(f"正在跳转到第 {page_number} 页...")
-            input_box.fill(str(page_number))
-            confirm_button.click()
-            page.wait_for_timeout(random.randint(1200, 2200))
-            return self.wait_for_item_cards(page, timeout=10000, platform_key=platform_key)
-        except Exception as exc:
-            self.emit_log(f"跳转到第 {page_number} 页失败：{exc}")
-            return False
+                self.emit_log(f"正在跳转到第 {page_number} 页...")
+                input_box.fill(str(page_number))
+                confirm_button.click()
+                page.wait_for_timeout(random.randint(1200, 2200))
+                result = self.wait_for_item_cards(page, timeout=10000, platform_key=platform_key)
+                if result:
+                    return True
+                if attempt < 2:
+                    self.emit_log(f"第 {page_number} 页商品流加载未确认，第{attempt+2}/3次重试...")
+                    page.wait_for_timeout(random.randint(1500, 3000))
+            except Exception as exc:
+                if attempt < 2:
+                    self.emit_log(f"跳转到第 {page_number} 页失败（{exc}），第{attempt+2}/3次重试...")
+                    page.wait_for_timeout(random.randint(1000, 2500))
+                else:
+                    self.emit_log(f"跳转到第 {page_number} 页失败（已重试3次）：{exc}")
+
+        return False
 
     def scan_loaded_page(self, page, monitor_item, page_number):
         self.emit_log(f"正在解析第 {page_number} 页商品...")

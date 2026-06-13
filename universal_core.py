@@ -3869,6 +3869,8 @@ class UniversalCollector:
         browser_session=None,
     ):
         self.log(f"开始采集：{url}")
+        fetch_quality = "full"
+        html = ""
         try:
             try:
                 html = (
@@ -3879,14 +3881,27 @@ class UniversalCollector:
                         browser_session=browser_session,
                     )
                     if use_browser
-                    else self.fetch_static(url)
+                    else self.fetch_static_retry(url)
                 )
             except Exception as browser_exc:
                 if not use_browser:
                     raise
                 self.log(f"浏览器采集失败，自动改用普通网页读取：{browser_exc}")
-                html = self.fetch_static(url)
+                html = self.fetch_static_retry(url)
+                if not use_browser:
+                    fetch_quality = "degraded_static_retry"
+                else:
+                    fetch_quality = "degraded_browser_fallback_static"
             record = UniversalExtractor(template).extract(html, url)
+            record["fetch_quality"] = fetch_quality
+            if fetch_quality.startswith("degraded"):
+                record["quality_notes"] = f"数据来源降级: {fetch_quality}"
+            # ── ACS shadow: 旁路对比解析，不影响旧流程输出 ──
+            try:
+                from acs.adapter import acs_shadow_collect
+                acs_shadow_collect(url, html, record, fetch_quality, log_func=self.log)
+            except Exception:
+                pass  # ACS 失败绝不影响旧流程
             self.log(f"采集完成：{compact_text(record.get('title') or url, 80)}")
             return record
         except Exception as exc:
@@ -3905,8 +3920,15 @@ class UniversalCollector:
                 "links": [],
                 "tables": [],
                 "error": str(exc),
+                "fetch_quality": "failed",
             }
             record["fingerprint"] = content_fingerprint(record)
+            # ACS shadow: even if legacy failed, try ACS on whatever HTML we got
+            try:
+                from acs.adapter import acs_shadow_collect
+                acs_shadow_collect(url, html, record, "failed", log_func=self.log)
+            except Exception:
+                pass
             return record
 
     def fetch_static(self, url):
@@ -3915,6 +3937,13 @@ class UniversalCollector:
             data = response.read()
             charset = response.headers.get_content_charset() or "utf-8"
         return data.decode(charset, errors="replace")
+
+    def fetch_static_retry(self, url):
+        """Fetch via ApiGateway for retry/backoff protection."""
+        from core_api_gateway import get_gateway
+        headers = {"User-Agent": DEFAULT_USER_AGENT}
+        text = get_gateway().request("GET", url, headers=headers, timeout=DEFAULT_TIMEOUT_SECONDS)
+        return text
 
     def fetch_with_playwright(
         self,
@@ -3933,6 +3962,11 @@ class UniversalCollector:
             self.close_browser_session(session)
 
     def prepare_dynamic_page(self, page, url, scroll_times=DEFAULT_SCROLL_TIMES):
+        MAX_SCROLL = 20  # hard cap — safety net for infinite-scroll sites
+        SCROLL_PX = 1200
+        SETTLE_MS = 700
+        MIN_NEW_NODES = 3  # stop if fewer new visible elements appear
+
         page.goto(url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_SECONDS * 1000)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
@@ -3943,9 +3977,32 @@ class UniversalCollector:
                 logger=self.log,
                 details={"url": url},
             )
-        for _ in range(max(0, int(scroll_times))):
-            page.mouse.wheel(0, 1600)
-            page.wait_for_timeout(600)
+
+        # Smart scroll: keep scrolling while new content appears (infinite-scroll)
+        baseline_count = 0
+        try:
+            baseline_count = page.evaluate(
+                "() => document.querySelectorAll('img,a,li,div,p,article,section').length"
+            )
+        except Exception:
+            pass
+
+        for i in range(max(1, int(scroll_times)), MAX_SCROLL + 1):
+            page.mouse.wheel(0, SCROLL_PX)
+            page.wait_for_timeout(SETTLE_MS)
+
+            # Check if new DOM nodes appeared
+            if i >= int(scroll_times):
+                try:
+                    current_count = page.evaluate(
+                        "() => document.querySelectorAll('img,a,li,div,p,article,section').length"
+                    )
+                except Exception:
+                    current_count = baseline_count
+                new_nodes = current_count - baseline_count
+                if new_nodes < MIN_NEW_NODES:
+                    break
+                baseline_count = current_count
 
     def open_login_browser(self, url="https://example.com/"):
         from playwright.sync_api import sync_playwright
@@ -4021,8 +4078,8 @@ class UniversalCollector:
                     browser_session=browser_session,
                 )
             except Exception as exc:
-                self.log(f"自动翻页浏览器读取失败，改用普通网页读取：{exc}")
-        return self.fetch_static(url)
+                self.log(f"自动翻页浏览器读取失败，改用普通网页读取(网关重试)：{exc}")
+        return self.fetch_static_retry(url)
 
     def pagination_candidate_urls(self, html, current_url, root_url):
         soup = BeautifulSoup(html or "", "html.parser")
@@ -4072,21 +4129,37 @@ class UniversalCollector:
         page_limit=DEFAULT_PAGE_LIMIT,
         keep_login_state=False,
         browser_session=None,
+        max_depth=3,
+        min_pagination_score=30,
     ):
+        """BFS pagination expansion with depth limit and score filtering.
+
+        *max_depth* (default 3) prevents wandering off from the list page
+        into unrelated detail pages. Only links scoring >= *min_pagination_score*
+        are considered.
+
+        *page_limit* caps total discovered pages (hard limit = 50).
+        """
         start_url = normalize_url(url)
         if not start_url:
             return []
         urls = []
         seen = set()
-        queue = [start_url]
-        while queue and len(urls) < page_limit:
-            current_url = queue.pop(0)
+        # (url, depth)
+        queue = [(start_url, 0)]
+        while queue and len(urls) < min(page_limit, 50):
+            current_url, depth = queue.pop(0)
             if not current_url or current_url in seen:
+                continue
+            if depth > max_depth:
                 continue
             seen.add(current_url)
             urls.append(current_url)
             if len(urls) >= page_limit:
                 break
+            # Don't recurse deeper when at depth limit
+            if depth >= max_depth:
+                continue
             try:
                 html = self.fetch_page_html_for_expansion(
                     current_url,
@@ -4101,12 +4174,15 @@ class UniversalCollector:
             if candidates:
                 self.log(
                     f"自动翻页候选：{current_url} 发现 {len(candidates)} 个，"
-                    f"示例={'; '.join(item.get('url', '') for item in candidates[:5])}"
+                    f"深度={depth}，示例={'; '.join(item.get('url', '') for item in candidates[:5])}"
                 )
             for candidate in candidates:
                 candidate_url = candidate.get("url", "")
-                if candidate_url not in seen and candidate_url not in queue:
-                    queue.append(candidate_url)
+                candidate_score = int(candidate.get("score", 0))
+                if candidate_score < min_pagination_score:
+                    continue
+                if candidate_url not in seen and candidate_url not in [u for u, d in queue]:
+                    queue.append((candidate_url, depth + 1))
                     if len(queue) + len(urls) >= page_limit:
                         break
         if len(urls) > 1:

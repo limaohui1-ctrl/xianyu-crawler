@@ -24,6 +24,7 @@ from universal_core import (
     refresh_ai_provider_models,
     test_ai_provider_connectivity,
 )
+from core_ai_client import estimate_cost
 from core_nl_web_crawler import crawl_from_natural_language
 from ui_export_utils import export_default_dir
 
@@ -427,17 +428,37 @@ class AIWorker(QObject):
         if switched_name:
             fallback = next((item for item in self.settings.get("api_keys", []) or [] if item.get("name") == switched_name), {})
             api_key = fallback.get("key", api_key)
+        model = self.settings.get("model", "")
+        # Estimate cost
+        cost_info = {}
+        try:
+            system_prompt = str(self.payload.get("system_prompt") or self.payload.get("prompt") or "")
+            user_prompt = str(self.payload.get("user_prompt") or "")
+            completion = ""
+            if isinstance(result, str):
+                completion = result
+            elif isinstance(result, dict):
+                completion = str(result.get("content") or result.get("text") or "")
+            cost_info = estimate_cost(model, prompt_text=system_prompt + user_prompt,
+                                      completion_text=completion)
+        except Exception:
+            cost_info = {"tokens_total": 0, "estimated_cost_usd": 0.0, "pricing_source": "error"}
         append_ai_call_log(
             {
                 "action": self.action,
                 "status": status,
                 "provider": self.settings.get("provider", ""),
                 "provider_name": self.settings.get("provider_name", ""),
-                "model": self.settings.get("model", ""),
+                "model": model,
                 "key_name": key_name,
                 "key_mask": mask_api_key(api_key),
                 "duration_ms": int(duration_ms or 0),
                 "auto_switched_key": switched_name,
+                "tokens_total": cost_info.get("tokens_total", 0),
+                "tokens_prompt": cost_info.get("tokens_prompt", 0),
+                "tokens_completion": cost_info.get("tokens_completion", 0),
+                "estimated_cost_usd": cost_info.get("estimated_cost_usd", 0.0),
+                "pricing_source": cost_info.get("pricing_source", ""),
                 "error": str(error_text or "")[:1000],
             }
         )

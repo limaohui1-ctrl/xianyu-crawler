@@ -1,11 +1,10 @@
 import base64
+import hashlib
 import json
 import mimetypes
 import os
 import re
 from urllib.parse import quote
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 from universal_core import (
     load_ai_settings,
@@ -21,6 +20,7 @@ from universal_core import (
     normalize_url,
 )
 
+from core_api_gateway import get_gateway, GatewayError, GatewayConfig
 from core_firecrawl import FirecrawlClient, FirecrawlConfig
 
 
@@ -56,19 +56,16 @@ class AIClient:
             raise RuntimeError("gpt-5.2-pro 仅支持 OpenAI Responses API；当前桌面版请改选 gpt-5.2 或 gpt-5-mini。")
 
     def request_json(self, url, payload=None, headers=None, method="POST", timeout=None):
-        body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        """Route through the unified API gateway for retry / backoff / rate-limit protection."""
+        effective_timeout = timeout or int(self.settings.get("timeout_seconds") or 60)
         request_headers = {"Content-Type": "application/json"}
         request_headers.update(headers or {})
-        request = Request(url, data=body, headers=request_headers, method=method)
         try:
-            with urlopen(request, timeout=timeout or int(self.settings.get("timeout_seconds") or 60)) as response:
-                data = response.read().decode("utf-8", errors="replace")
-                return json.loads(data) if data else {}
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:1200]
-            raise RuntimeError(f"API 请求失败：HTTP {exc.code} {detail}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"API 网络连接失败：{exc}") from exc
+            return get_gateway().request_json(
+                method, url, payload=payload, headers=request_headers, timeout=effective_timeout,
+            )
+        except GatewayError:
+            raise  # GatewayError IS a RuntimeError — callers catch it as before
 
     def fetch_models(self):
         self.require_ready()
@@ -96,22 +93,47 @@ class AIClient:
                 models.append(item.get("id") or item.get("name") or item.get("model"))
         return [str(m).replace("models/", "") for m in models if m]
 
-    def chat_text(self, system_prompt, user_prompt, images=None):
+    def chat_text(self, system_prompt, user_prompt, images=None, skip_cache=False):
         self.require_ready()
         api_format = self.api_format
         if api_format == "thunderbit_extract":
             raise RuntimeError("Thunderbit Extract API 是第三方网页抽取接口，不是通用大模型对话接口。请切换到 OpenAI/Claude/Gemini/国内厂商模型。")
-        if api_format == "anthropic":
-            return self._chat_anthropic(system_prompt, user_prompt, images=images)
-        if api_format == "gemini":
-            return self._chat_gemini(system_prompt, user_prompt, images=images)
-        return self._chat_openai_compatible(system_prompt, user_prompt, images=images)
 
-    def chat_json(self, system_prompt, user_prompt, images=None):
+        # ── Cache check (skip when images are involved or explicitly disabled) ──
+        cache_key = None
+        if not images and not skip_cache:
+            from core_cache import get_ai_cache, ai_cache_key
+            cache = get_ai_cache()
+            cache_key = ai_cache_key(
+                system_prompt, user_prompt, self.model,
+                float(self.settings.get("temperature") or 0.1),
+                base_url=self.base_url,
+                api_key_hash=hashlib.sha256(
+                    (self.api_key or "").encode()).hexdigest()[:12],
+            )
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        if api_format == "anthropic":
+            result = self._chat_anthropic(system_prompt, user_prompt, images=images)
+        elif api_format == "gemini":
+            result = self._chat_gemini(system_prompt, user_prompt, images=images)
+        else:
+            result = self._chat_openai_compatible(system_prompt, user_prompt, images=images)
+
+        # ── Store in cache ──
+        if cache_key is not None:
+            get_ai_cache().set(cache_key, result)
+
+        return result
+
+    def chat_json(self, system_prompt, user_prompt, images=None, skip_cache=False):
         text = self.chat_text(
             system_prompt + "\n只返回 JSON，不要解释，不要 Markdown。",
             user_prompt,
             images=images,
+            skip_cache=skip_cache,
         )
         return extract_json_from_text(text)
 
@@ -153,6 +175,16 @@ class AIClient:
         }
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         data = self.request_json(url, payload, headers)
+        # Capture usage for cost tracking
+        usage = data.get("usage") or {}
+        if isinstance(usage, dict):
+            self._last_usage = {
+                "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+                "completion_tokens": int(usage.get("completion_tokens", 0)),
+                "total_tokens": int(usage.get("total_tokens", 0)),
+            }
+        else:
+            self._last_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         try:
             return data["choices"][0]["message"]["content"]
         except Exception as exc:
@@ -191,6 +223,7 @@ class AIClient:
         result = self.chat_json(
             "你是连接测试器。",
             '返回 {"ok": true, "message": "连接成功"}',
+            skip_cache=True,
         )
         if not result.get("ok"):
             raise RuntimeError(f"API 已响应，但没有返回 ok=true：{result}")
@@ -341,3 +374,148 @@ def ai_extract_file_to_table(file_path, instruction="", settings=None, firecrawl
             ensure_ascii=False,
         ),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Cost estimation — approximate, based on published pricing (2026 Q2)
+# ═══════════════════════════════════════════════════════════════════
+
+# Price per 1M tokens: (input, output) in USD.  Prices change — these are
+# estimates for budget tracking, not billing.
+_MODEL_COST_PER_1M: dict = {
+    # OpenAI
+    "gpt-5.2": (1.75, 14.00),
+    "gpt-5.2-pro": (1.75, 14.00),
+    "gpt-5.1": (1.25, 10.00),
+    "gpt-5.1-mini": (0.15, 0.60),
+    "gpt-5": (1.25, 10.00),
+    "gpt-5-mini": (0.15, 0.60),
+    "gpt-5-nano": (0.05, 0.20),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1-nano": (0.10, 0.40),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "o4-mini": (1.10, 4.40),
+    "o3": (10.00, 40.00),
+    # Anthropic
+    "claude-opus-4-8": (15.00, 75.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-haiku-4-5": (0.80, 4.00),
+    "claude-opus-4-5": (15.00, 75.00),
+    "claude-sonnet-4-5": (3.00, 15.00),
+    "claude-opus-4-1": (15.00, 75.00),
+    "claude-sonnet-4": (3.00, 15.00),
+    "claude-3-7-sonnet": (3.00, 15.00),
+    "claude-3-5-sonnet": (3.00, 15.00),
+    "claude-3-5-haiku": (0.80, 4.00),
+    "claude-3-opus": (15.00, 75.00),
+    "claude-3-haiku": (0.25, 1.25),
+    # DeepSeek
+    "deepseek-v4-pro": (0.55, 2.19),
+    "deepseek-v4-flash": (0.27, 1.10),
+    "deepseek-chat": (0.27, 1.10),
+    "deepseek-reasoner": (0.55, 2.19),
+    "deepseek-v3": (0.27, 1.10),
+    "deepseek-r1": (0.55, 2.19),
+    # Google
+    "gemini-3.5-flash": (0.15, 0.60),
+    "gemini-3.1-pro": (1.25, 5.00),
+    "gemini-2.5-pro": (1.25, 5.00),
+    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-2.0-flash": (0.15, 0.60),
+    "gemini-1.5-pro": (1.25, 5.00),
+    "gemini-1.5-flash": (0.075, 0.30),
+    # Qwen (DashScope)
+    "qwen3-max": (0.55, 1.64),
+    "qwen3-plus": (0.27, 1.10),
+    "qwen3-turbo": (0.11, 0.33),
+    "qwen-max": (0.55, 1.64),
+    "qwen-plus": (0.27, 1.10),
+    "qwen-flash": (0.0, 0.0),       # free tier
+    "qwen-turbo": (0.11, 0.33),
+    # xAI
+    "grok-4": (2.00, 8.00),
+    "grok-4-fast": (0.60, 4.00),
+    "grok-3": (2.00, 8.00),
+    "grok-3-mini": (0.30, 1.00),
+    # Misc
+    "hunyuan-turbos-latest": (0.15, 0.60),
+    "hunyuan-turbo-latest": (0.15, 0.60),
+    "moonshot-v1-128k": (0.60, 0.60),
+    "moonshot-v1-32k": (0.24, 0.24),
+    "kimi-latest": (0.60, 0.60),
+    "glm-4.5-flash": (0.00, 0.00),
+    "glm-4.5": (0.10, 0.50),
+    "mistral-large-latest": (2.00, 6.00),
+    "mistral-small-latest": (0.20, 0.60),
+    "sonar-pro": (1.00, 1.00),
+    "sonar": (1.00, 1.00),
+}
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token count: 1 token ≈ 4 characters for English, ≈ 2 for CJK.
+
+    This is a heuristic — use API-reported counts when available."""
+    if not text:
+        return 0
+    # Count CJK characters (they're ~2 chars per token)
+    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u303f')
+    other = len(text) - cjk
+    return max(1, int(cjk / 1.5 + other / 4.0))
+
+
+def estimate_cost(model: str, prompt_text: str = "",
+                  completion_text: str = "",
+                  usage: dict = None) -> dict:
+    """Estimate cost for an AI call.
+
+    Uses API-reported usage when available (``usage`` dict with prompt_tokens,
+    completion_tokens), otherwise falls back to ``estimate_tokens()`` on the
+    provided text strings.
+
+    Returns a dict with ``tokens_prompt``, ``tokens_completion``,
+    ``tokens_total``, ``estimated_cost_usd``, and ``pricing_source``.
+    """
+    model_key = (model or "").strip().lower()
+    # Try exact match first, then try stripping prefixes (openai/gpt-5.2 → gpt-5.2)
+    pricing = _MODEL_COST_PER_1M.get(model_key)
+    if not pricing:
+        # Try the last segment after /
+        short = model_key.rsplit("/", 1)[-1]
+        pricing = _MODEL_COST_PER_1M.get(short)
+    if not pricing:
+        # Try matching by prefix
+        for known, cost in _MODEL_COST_PER_1M.items():
+            if model_key.startswith(known) or known.startswith(model_key):
+                pricing = cost
+                break
+    if not pricing:
+        pricing = (1.00, 4.00)  # default guess
+
+    input_price_per_1m, output_price_per_1m = pricing
+
+    if usage and isinstance(usage, dict) and usage.get("total_tokens", 0) > 0:
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        completion_tokens = int(usage.get("completion_tokens", 0))
+        total_tokens = prompt_tokens + completion_tokens
+        pricing_source = "api_reported"
+    else:
+        prompt_tokens = estimate_tokens(prompt_text)
+        completion_tokens = estimate_tokens(completion_text)
+        total_tokens = prompt_tokens + completion_tokens
+        pricing_source = "estimated_from_text"
+
+    cost = (prompt_tokens / 1_000_000) * input_price_per_1m + \
+           (completion_tokens / 1_000_000) * output_price_per_1m
+
+    return {
+        "tokens_prompt": prompt_tokens,
+        "tokens_completion": completion_tokens,
+        "tokens_total": total_tokens,
+        "estimated_cost_usd": round(cost, 6),
+        "input_price_per_1m": input_price_per_1m,
+        "output_price_per_1m": output_price_per_1m,
+        "pricing_source": pricing_source,
+    }
