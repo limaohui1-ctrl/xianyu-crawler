@@ -1,1 +1,0 @@
-{"call_id": "smoke_1781362444044", "timestamp": "2026-06-13T22:54:04", "url": "https://example.com", "model": "deepseek-chat", "provider": "openai_compatible", "tokens_prompt": 0, "tokens_completion": 0, "estimated_cost": 0.0, "success": false, "error": "AI client error: HTTP Error 401: Unauthorized", "elapsed_seconds": 0.658, "parser": "ai_parser"}

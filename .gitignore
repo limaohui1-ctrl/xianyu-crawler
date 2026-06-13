@@ -45,3 +45,4 @@ risk_confirmations.json
 # Windows shortcuts and generated screenshots
 *.lnk
 ui_snapshot*.png
+logs/
