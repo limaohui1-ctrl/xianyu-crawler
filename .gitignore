@@ -37,6 +37,11 @@ change_alerts.json
 change_alert_states.json
 risk_confirmations.json
 
+# Runtime backups and rotation artifacts
+*.bak
+*.archive-*.jsonl
+*.lock
+
 # Windows shortcuts and generated screenshots
 *.lnk
 ui_snapshot*.png
