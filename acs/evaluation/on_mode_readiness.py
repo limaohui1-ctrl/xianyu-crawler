@@ -88,8 +88,13 @@ def summary(rs: ReadinessScore) -> dict:
     return d
 
 def main():
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--site-id", default="default")
     rs = evaluate_from_shadow()
-    print(json.dumps(summary(rs), ensure_ascii=False, indent=2))
+    sm = summary(rs)
+    sm["site_id"] = p.parse_args().site_id
+    print(json.dumps(sm, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()

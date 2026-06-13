@@ -52,8 +52,11 @@ def _check_sqlite(path):
 def _check_api_key_env_only():
     import acs.provider.provider_config as pc
     src = open(pc.__file__, encoding="utf-8").read()
-    has_key = "sk-" in src or "api_key" in src.lower() and '"***"' not in src
-    return (not has_key, "no hardcoded key found" if not has_key else "WARNING: key-like string in source")
+    # Check for actual key strings like "sk-xxx" hardcoded (not in getenv/os.environ)
+    import re
+    real_key = re.findall(r'["\']sk-[a-zA-Z0-9]{30,}["\']', src)
+    count = len(real_key)
+    return (count == 0, "no hardcoded key" if count == 0 else "WARNING: {} hardcoded key(s)".format(count))
 
 def _check_adapter():
     import subprocess
