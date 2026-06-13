@@ -196,7 +196,7 @@ def main():
                     "elapsed_seconds": round(elapsed, 3),
                     "audit_logged": True,
                     "cost_logged": True,
-                    "forced": force_ai and not decision.should_invoke,
+                    "forced": force_ai,
                 }
             else:
                 results["ai_parser"] = {"called": False, "reason": decision.reason}

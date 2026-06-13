@@ -47,3 +47,6 @@ risk_confirmations.json
 ui_snapshot*.png
 logs/
 acs_shadow_logs/
+acs_data/
+.env.smoke
+.env
