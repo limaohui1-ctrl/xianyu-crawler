@@ -121,6 +121,133 @@ def api_export(fmt):
     if fmt == "json": return jsonify(json.loads(result))
     return f"<pre>{result}</pre>"
 
+# ── Harvest API ──
+@app.route("/api/harvest/run", methods=["POST"])
+@require_auth
+def api_harvest_run():
+    """Run content harvest on selected URLs or custom URL list."""
+    data = request.get_json() or {}
+    urls = data.get("urls", [])
+    keywords = data.get("keywords", [])
+    include_duplicates = data.get("include_duplicates", True)
+
+    if not urls:
+        # Try loading from selected_urls.txt
+        try:
+            with open("acs_data/discovery/selected_urls.txt", encoding="utf-8") as f:
+                urls = [line.strip() for line in f if line.strip()]
+        except Exception:
+            pass
+
+    if not urls:
+        return jsonify({"error": "No URLs provided", "results": [], "stats": {}}), 400
+
+    from acs.content.content_harvest_pipeline import run_harvest
+    results = run_harvest(urls, keywords=keywords, include_duplicates=include_duplicates)
+
+    stats = results[0].pop("_harvest_stats", {}) if results else {}
+    return jsonify({"results": results, "stats": stats})
+
+
+@app.route("/api/harvest/export/<fmt>")
+def api_harvest_export(fmt):
+    """Export harvest results in specified format."""
+    # Load most recent harvest results
+    import glob as _g
+    json_files = sorted(_g.glob("acs_data/harvest/harvest_*.json"), reverse=True)
+    if not json_files:
+        return jsonify({"error": "No harvest results found"}), 404
+
+    with open(json_files[0], encoding="utf-8") as f:
+        results = json.load(f)
+
+    if fmt == "json":
+        return jsonify({"results": results})
+
+    if fmt == "csv":
+        from acs.content.content_harvest_pipeline import harvest_to_csv_string
+        csv_content = harvest_to_csv_string(results)
+        return csv_content, 200, {"Content-Type": "text/csv; charset=utf-8",
+                                   "Content-Disposition": "attachment; filename=harvest.csv"}
+
+    if fmt == "excel" or fmt == "xlsx":
+        from acs.content.export_excel import export_excel, is_excel_available
+        if not is_excel_available():
+            return jsonify({"error": "openpyxl not installed"}), 500
+        try:
+            path = export_excel(results)
+            return jsonify({"file": path, "format": "xlsx"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    if fmt == "markdown":
+        from acs.content.content_harvest_pipeline import harvest_to_markdown_string
+        md_content = harvest_to_markdown_string(results)
+        return f"<pre>{md_content}</pre>"
+
+    return jsonify({"error": f"Unknown format: {fmt}"}), 400
+
+
+@app.route("/api/harvest/export-file/<fmt>")
+def api_harvest_export_file(fmt):
+    """Export harvest results to file, return path."""
+    import glob as _g
+    json_files = sorted(_g.glob("acs_data/harvest/harvest_*.json"), reverse=True)
+    if not json_files:
+        return jsonify({"error": "No harvest results found"}), 404
+
+    with open(json_files[0], encoding="utf-8") as f:
+        results = json.load(f)
+
+    if fmt == "csv":
+        from acs.content.content_harvest_pipeline import _save_csv
+        import time as _t
+        path = f"acs_data/harvest/harvest_{_t.strftime('%Y%m%d_%H%M%S')}.csv"
+        _save_csv(results, path)
+        return jsonify({"file": os.path.abspath(path), "format": "csv"})
+
+    if fmt == "xlsx" or fmt == "excel":
+        from acs.content.export_excel import export_excel, is_excel_available
+        if not is_excel_available():
+            return jsonify({"error": "openpyxl not installed"}), 500
+        try:
+            path = export_excel(results)
+            return jsonify({"file": os.path.abspath(path), "format": "xlsx"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    if fmt == "markdown":
+        from acs.content.content_harvest_pipeline import _save_markdown
+        import time as _t
+        path = f"acs_data/harvest/harvest_{_t.strftime('%Y%m%d_%H%M%S')}.md"
+        _save_markdown(results, path)
+        return jsonify({"file": os.path.abspath(path), "format": "md"})
+
+    return jsonify({"error": f"Unknown format: {fmt}"}), 400
+
+
+@app.route("/api/harvest/status")
+def api_harvest_status():
+    """Get harvest status: latest results summary, available exports."""
+    import glob as _g
+    json_files = sorted(_g.glob("acs_data/harvest/harvest_*.json"), reverse=True)
+    if not json_files:
+        return jsonify({"status": "no_data", "count": 0})
+
+    with open(json_files[0], encoding="utf-8") as f:
+        results = json.load(f)
+
+    stats = {}
+    if results and "_harvest_stats" in results[0]:
+        stats = results[0]["_harvest_stats"]
+
+    return jsonify({
+        "status": "ready",
+        "count": len(results),
+        "latest_file": json_files[0],
+        "stats": stats,
+    })
+
 # ── Content helpers ──
 def overview_content():
     d = get_overview_data()
