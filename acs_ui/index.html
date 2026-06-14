@@ -20,6 +20,9 @@
     <a class="nav-item active" data-page="overview" onclick="switchPage('overview')">
       <span class="nav-icon">🏠</span> 首页
     </a>
+    <a class="nav-item" data-page="discovery" onclick="switchPage('discovery')">
+      <span class="nav-icon">🧠</span> 智能找资料
+    </a>
     <a class="nav-item" data-page="new_task" onclick="switchPage('new_task')">
       <span class="nav-icon">📋</span> 新建采集
     </a>
@@ -64,16 +67,18 @@
     <h2>导入网址或文件，自动采集、整理并导出资料。</h2>
 
     <div class="action-row">
-      <button class="btn btn-lg btn-primary" onclick="switchPage('new_task')">📋 新建采集任务</button>
+      <button class="btn btn-lg btn-primary" onclick="switchPage('discovery')">🧠 智能找资料</button>
+      <button class="btn btn-lg" onclick="switchPage('new_task')">📋 新建采集任务</button>
       <button class="btn btn-lg" onclick="switchPage('sources')">📂 导入 URL 文件</button>
       <button class="btn btn-lg" onclick="switchPage('results')">📊 查看采集结果</button>
+      <button class="btn btn-lg" onclick="switchPage('export_page')">📥 导出资料</button>
     </div>
 
     <div class="user-summary-grid">
-      <div class="user-card" onclick="switchPage('new_task')" style="cursor:pointer">
-        <div class="user-card-icon">📋</div>
-        <div class="user-card-title">新建任务</div>
-        <div class="user-card-desc">创建一个资料采集任务，设定名称、类型和来源。</div>
+      <div class="user-card" onclick="switchPage('discovery')" style="cursor:pointer">
+        <div class="user-card-icon">🧠</div>
+        <div class="user-card-title">智能找资料</div>
+        <div class="user-card-desc">输入主题和关键词，自动发现候选资料来源。</div>
       </div>
       <div class="user-card" onclick="switchPage('sources')" style="cursor:pointer">
         <div class="user-card-icon">📂</div>
@@ -104,6 +109,83 @@
     </div>
 
     <p class="footnote">ⓘ 请确保资料来源为公开授权页面。详细说明见"高级设置"。</p>
+  </section>
+
+  <!-- ── Page: Discovery ── -->
+  <section class="page" id="page-discovery">
+    <h2>🧠 智能找资料</h2>
+
+    <div class="card" style="max-width:680px">
+      <div class="form-group">
+        <label>资料主题</label>
+        <input type="text" class="form-input" placeholder="例如：园区废气治理案例、半导体行业趋势...">
+      </div>
+      <div class="form-group">
+        <label>关键词（逗号分隔）</label>
+        <input type="text" class="form-input" placeholder="例如：VOCs, 活性炭, 废气治理, 整改报告">
+      </div>
+      <div class="form-group" style="display:flex;gap:14px">
+        <div style="flex:1">
+          <label>资料类型</label>
+          <select class="form-input">
+            <option>网页资料</option><option>文章资料</option><option>政策资料</option>
+            <option>企业资料</option><option>商品资料</option><option>PDF 文档</option>
+            <option>表格资料</option><option>图片资料</option><option>自定义资料</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <label>预计数量</label>
+          <select class="form-input"><option>10 条</option><option>20 条</option><option selected>50 条</option><option>100 条</option></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>语言</label>
+        <select class="form-input" style="width:200px">
+          <option>中文</option><option>英文</option><option>不限定</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="cursor:pointer;font-weight:400">
+          <input type="checkbox" checked style="margin-right:6px"> 排除商业平台（Amazon/Walmart/BestBuy 等，已知存在访问限制）
+        </label>
+      </div>
+      <button class="btn btn-primary btn-lg" onclick="switchPage('candidates')" style="margin-top:8px">🔍 开始搜索</button>
+      <p class="footnote" style="margin-top:10px">ⓘ 系统将通过公开、合规渠道发现候选来源。不会绕过登录、验证码或访问控制。</p>
+    </div>
+  </section>
+
+  <!-- ── Page: Candidate Confirmation ── -->
+  <section class="page" id="page-candidates">
+    <h2>候选来源确认</h2>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span>搜索结果：<strong>32</strong> 条</span>
+        <span>
+          <button class="btn btn-sm" onclick="showToast('已全选可采集条目')">全选可采集</button>
+          <button class="btn btn-sm btn-primary" onclick="switchPage('new_task');showToast('已加入 18 条候选来源到采集任务')">加入采集任务 →</button>
+        </span>
+      </div>
+
+      <table class="data-table">
+        <thead><tr><th>☑</th><th>标题</th><th>来源网站</th><th>相关度</th><th>风险</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" checked></td><td>园区VOCs治理典型案例分析</td><td>epb.gov.cn</td><td><span class="badge-green">92%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link" onclick="showToast('预览：园区VOCs治理典型案例...')">预览</a></td></tr>
+          <tr><td><input type="checkbox" checked></td><td>活性炭吸附技术在废气治理中的应用指南</td><td>mee.gov.cn</td><td><span class="badge-green">88%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link">预览</a></td></tr>
+          <tr><td><input type="checkbox" checked></td><td>挥发性有机物治理整改报告汇编</td><td>zhbb.gov.cn</td><td><span class="badge-green">85%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link">预览</a></td></tr>
+          <tr><td><input type="checkbox"></td><td>XXX环保设备供应商产品目录</td><td>example.com</td><td><span class="badge-yellow">71%</span></td><td><span class="badge-yellow">中</span></td><td><a href="#" class="link">预览</a></td></tr>
+          <tr><td><input type="checkbox"></td><td>XXX公司VOCs治理方案.pdf</td><td>xxx.co</td><td><span class="badge-yellow">65%</span></td><td><span class="badge-red">高</span></td><td><a href="#" class="link">预览</a></td></tr>
+          <tr><td>✕</td><td style="opacity:0.5">付费资料平台 - VOCs治理专题</td><td style="opacity:0.5">paywall.cn</td><td><span class="badge-red">40%</span></td><td><span class="badge-red">禁止</span></td><td><span class="dim">需要登录</span></td></tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px;font-size:13px">
+        已选 <strong id="selected_count">18</strong> 条 |
+        <span class="badge-green">可采集 28</span>
+        <span class="badge-yellow">需确认 3</span>
+        <span class="badge-red">禁止 1</span>
+      </div>
+    </div>
   </section>
 
   <!-- ── Page: New Task ── -->
