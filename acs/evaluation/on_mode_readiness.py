@@ -41,9 +41,20 @@ def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
     if u.endswith((".txt", ".md", ".robots.txt", ".geojson")): return "text_document"
     # ── Product detail page (single item, has explicit product ID) ──
     detail_indicators = [
-        "/index.html",                           # toscrape detail: ..._1000/index.html
-        "/ajax/product/", "/static/product/",    # webscraper product pages
-        "/allinone/product/",                    # webscraper allinone product
+        "/index.html",                            # toscrape detail
+        "/ajax/product/", "/static/product/",     # webscraper product pages
+        "/allinone/product/",                     # webscraper allinone product
+        "/dp/", "/gp/product/",                  # Amazon
+        "/itm/",                                  # eBay
+        "/ip/",                                   # Walmart
+        "/site/",                                 # BestBuy
+        "/listing/",                               # Etsy / general
+        "/product/",                               # DHgate / general
+        "/item/",                                  # AliExpress / Rakuten / general
+        "/products/",                              # Lazada / Shopee
+        "/us/en/p/",                               # IKEA (only matches IKEA pattern)
+        "/hotel/", "/rooms/",                      # Booking / Airbnb
+        "gsmarena.com/",                           # GSMArena phone specs
     ]
     is_detail = any(x in u for x in detail_indicators)
     # ── Product category/list page ──
@@ -51,13 +62,13 @@ def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
         "/catalogue/page-", "/catalogue/category/",
         "/computers", "/phones", "/tablets",
         "/allinone", "/static", "/more", "/ajax/",
-        "/test-sites/e-commerce",
+        "/test-sites/e-commerce", "/search?", "/browse/",
     ]
     is_list = any(x in u for x in list_indicators)
-    # Distinguish: detail takes priority
-    if is_detail and ("toscrape.com/catalogue" in u or "webscraper.io" in u):
+    # Distinguish: detail takes priority over list
+    if is_detail:
         return "html_product_detail_page"
-    if is_list and ("toscrape.com" in u or "webscraper.io" in u):
+    if is_list:
         return "html_product_list_page"
     # Generic product indicators (fallback)
     product_indicators = [
