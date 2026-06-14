@@ -1,0 +1,13 @@
+{
+  "week_start": "2026-06-14",
+  "week_end": "",
+  "total_shadow": 858,
+  "avg_success_rate": 1.0,
+  "total_ai_calls": 5,
+  "total_ai_cost": 0.002212,
+  "total_errors": 1,
+  "structure_changes": 0,
+  "reviews_opened": 0,
+  "reviews_closed": 0,
+  "risk_items": []
+}

@@ -32,20 +32,24 @@ def main():
     print(f"[环境] Python {sys.version.split()[0]}")
 
     # Check dependencies
-    try:
-        import flask  # noqa: F401
-        print("[依赖] 已满足")
-    except ImportError:
-        print("[错误] 缺少依赖: flask。请运行: pip install flask")
+    missing = []
+    for mod in ["flask", "bs4", "lxml", "requests"]:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        print(f"[错误] 缺少依赖: {', '.join(missing)}")
+        print(f"  请运行: pip install -r requirements.txt")
         sys.exit(1)
+    print("[依赖] 已满足")
 
     # Check port
     from acs.web.server_launcher import check_port
     if not check_port(args.port):
-        print(f"[警告] 端口 {args.port} 已被占用")
-        resp = input("是否继续？[Y/n] ").strip().lower()
-        if resp and resp != "y":
-            sys.exit(1)
+        print(f"[错误] 端口 {args.port} 已被占用。")
+        print(f"  请先关闭占用 {args.port} 端口的程序，再重新启动。")
+        sys.exit(1)
 
     # Start server in background
     import subprocess

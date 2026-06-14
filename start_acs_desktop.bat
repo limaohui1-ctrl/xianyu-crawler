@@ -24,22 +24,29 @@ if %errorlevel% neq 0 (
 :: ── Check dependencies ──
 python -c "import flask" >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [提示] 未安装 Flask，正在安装...
-    python -m pip install flask --quiet
-    if %errorlevel% neq 0 (
-        echo [错误] Flask 安装失败，请手动运行: pip install flask
-        pause
-        exit /b 1
-    )
+    echo.
+    echo [错误] 未安装 Flask 或其他依赖。
+    echo.
+    echo 请先运行以下命令安装依赖：
+    echo   python -m pip install -r requirements.txt
+    echo.
+    echo 如网络不可用，请手动安装：pip install flask beautifulsoup4 lxml requests
+    echo.
+    pause
+    exit /b 1
 )
 
 :: ── Check port 5020 ──
 python -c "from acs.web.server_launcher import check_port; import sys; sys.exit(0 if check_port(5020) else 1)" >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [提示] 端口 5020 已被占用，可能已有服务在运行。
     echo.
-    choice /c yn /m "是否尝试继续启动？[Y=是 N=否]"
-    if errorlevel 2 exit /b 1
+    echo [错误] 端口 5020 已被占用。
+    echo.
+    echo 可能有其他程序占用了 5020 端口，或已有 ACS 服务在运行。
+    echo 请先关闭占用 5020 端口的程序，再重新启动。
+    echo.
+    pause
+    exit /b 1
 )
 
 :: ── Start server ──
