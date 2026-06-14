@@ -143,6 +143,7 @@
       }
       _lastResult = result;
       renderCandidates(result);
+      updateApiStatus(result);
       switchPage('candidates');
       showToast('发现 ' + result.total_candidates + ' 条候选来源');
     });
@@ -392,6 +393,27 @@
   // Check on load and every 30s
   checkServiceStatus();
   setInterval(checkServiceStatus, 30000);
+
+  // ── API status indicator for topic-search ──
+  function updateApiStatus(result){
+    var el = document.getElementById('topic_api_status');
+    if(!el) return;
+    var api = result.api_status;
+    if(!api){
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = '';
+    if(api.real_configured){
+      el.style.background = '#e8f5e9';
+      el.style.color = '#2e7d32';
+      el.textContent = '[OK] 真实搜索 API 已连接 (' + api.active + ')，返回候选资料 ' + result.total_candidates + ' 条';
+    } else {
+      el.style.background = '#fff3e0';
+      el.style.color = '#e65100';
+      el.textContent = '[WARN] 搜索 API 未配置，当前为 Mock 演示模式。在 .env 中设置 BING_SEARCH_API_KEY 后启用真实搜索。';
+    }
+  }
 
   // ── Default dark mode ──
   document.body.classList.add('dark');
