@@ -8,6 +8,7 @@ No real search engine. No commercial platform access.
 """
 import json
 import os
+import subprocess
 import sys
 import time
 from flask import Flask, request, jsonify
@@ -197,6 +198,211 @@ def task_create():
         "mode": "shadow",
         "command_preview": cmd,
         "acs_mode_on": False,
+    })
+
+
+# ── In-memory task state store ──
+import threading
+_task_states = {}
+_task_lock = threading.Lock()
+
+
+def _task_state(run_id, **kw):
+    with _task_lock:
+        _task_states[run_id] = {**_task_states.get(run_id, {}), **kw}
+        return _task_states[run_id]
+
+
+# ── Run Shadow Task ──
+@app.route("/api/tasks/run-shadow", methods=["POST"])
+def run_shadow_task():
+    blocked, reason = _security_check()
+    if blocked:
+        return jsonify({"error": reason}), 403
+
+    data = request.get_json(silent=True) or {}
+    task_id = data.get("task_id", f"shadow_task_{int(time.time())}")
+    url_file = data.get("url_file", "acs_data/discovery/selected_urls.txt")
+    max_urls = int(data.get("max_urls", 20))
+    rate_limit = float(data.get("rate_limit", 0.3))
+
+    # Path safety: only allow files within project acs_data/ or discovery/
+    import os as _os
+    abs_path = _os.path.abspath(url_file)
+    allowed_prefixes = [
+        _os.path.abspath("acs_data"),
+        _os.path.abspath("urls"),
+    ]
+    if not any(abs_path.startswith(p) for p in allowed_prefixes):
+        if not abs_path.replace("\\", "/").startswith(
+            _os.path.abspath(".").replace("\\", "/") + "/acs_data"
+        ):
+            return jsonify({"error": "url_file path not allowed"}), 403
+
+    run_id = f"shadow_run_{int(time.time()*1000)}"
+    mode = "shadow"
+
+    _task_state(run_id,
+        task_id=task_id, status="running", total=0, success=0, failed=0,
+        progress=0.0, message="正在启动采集...", mode=mode, url_file=url_file,
+    )
+
+    # Run in background thread
+    def _do_run():
+        _task_state(run_id, message="正在采集...")
+        try:
+            cmd = [
+                sys.executable, "-m", "acs.scripts.run_shadow_batch",
+                "--urls", url_file,
+                "--site-id", task_id,
+                "--max-urls", str(max_urls),
+                "--rate-limit", str(rate_limit),
+            ]
+            env = {**_os.environ, "ACS_MODE": "shadow"}
+            p = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=300, cwd=_os.getcwd(), env=env,
+                               shell=False)
+
+            # Parse output for summary
+            out = p.stdout + p.stderr
+            total = max_urls
+            ok = out.count(" status=ok") or out.count("status: ok") or out.count("✓")
+            failed_count = max(0, total - ok) if ok < total else 0
+
+            _task_state(run_id,
+                status="completed" if p.returncode == 0 else "completed_with_errors",
+                total=total, success=ok, failed=failed_count,
+                progress=1.0, message=f"采集完成: {ok} 成功, {failed_count} 失败",
+            )
+        except subprocess.TimeoutExpired:
+            _task_state(run_id, status="failed", message="采集超时")
+        except Exception as e:
+            _task_state(run_id, status="failed", message=f"采集异常: {str(e)}")
+
+    t = threading.Thread(target=_do_run, daemon=True)
+    t.start()
+
+    return jsonify({
+        "run_id": run_id,
+        "task_id": task_id,
+        "status": "running",
+        "mode": mode,
+    })
+
+
+# ── Task Status ──
+@app.route("/api/tasks/status")
+def task_status():
+    run_id = request.args.get("run_id", "")
+    if not run_id:
+        return jsonify({"error": "run_id required"}), 400
+    with _task_lock:
+        state = _task_states.get(run_id)
+    if not state:
+        return jsonify({"status": "not_found", "message": "任务未找到"})
+    return jsonify(state)
+
+
+# ── Results List ──
+@app.route("/api/results/list")
+def results_list():
+    run_id = request.args.get("run_id", "")
+    limit = int(request.args.get("limit", 100))
+
+    shadow_log = "acs_shadow_logs/acs_shadow.jsonl"
+    rows = []
+    if os.path.exists(shadow_log):
+        with open(shadow_log, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i >= limit:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    rows.append({
+                        "index": i + 1,
+                        "url": entry.get("url", ""),
+                        "title": entry.get("title", ""),
+                        "description": entry.get("description", entry.get("body", ""))[:200],
+                        "price": entry.get("price", ""),
+                        "status": "success" if entry.get("ok") else "failed",
+                        "failure_reason": entry.get("error", entry.get("reason", "")),
+                        "collected_at": entry.get("timestamp", ""),
+                    })
+                except json.JSONDecodeError:
+                    continue
+
+    return jsonify({"run_id": run_id or "latest", "rows": rows, "total": len(rows)})
+
+
+# ── Results Export ──
+@app.route("/api/results/export", methods=["POST"])
+def results_export():
+    blocked, reason = _security_check()
+    if blocked:
+        return jsonify({"error": reason}), 403
+
+    data = request.get_json(silent=True) or {}
+    fmt = data.get("format", "json").lower()
+    if fmt not in ("json", "csv", "markdown"):
+        return jsonify({"error": f"unsupported format: {fmt}"}), 400
+
+    # Load results from shadow log
+    shadow_log = "acs_shadow_logs/acs_shadow.jsonl"
+    rows = []
+    if os.path.exists(shadow_log):
+        with open(shadow_log, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    rows.append({
+                        "url": entry.get("url", ""),
+                        "title": entry.get("title", ""),
+                        "description": entry.get("description", entry.get("body", ""))[:300],
+                        "price": entry.get("price", ""),
+                        "status": "success" if entry.get("ok") else "failed",
+                        "failure_reason": entry.get("error", entry.get("reason", "")),
+                        "collected_at": entry.get("timestamp", ""),
+                    })
+                except json.JSONDecodeError:
+                    continue
+
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    out_dir = "acs_data/exports"
+    os.makedirs(out_dir, exist_ok=True)
+
+    if fmt == "json":
+        out_path = os.path.join(out_dir, f"export_{ts}.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False, indent=2)
+    elif fmt == "csv":
+        out_path = os.path.join(out_dir, f"export_{ts}.csv")
+        import csv as _csv
+        with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
+            if rows:
+                w = _csv.DictWriter(f, fieldnames=rows[0].keys())
+                w.writeheader()
+                w.writerows(rows)
+    elif fmt == "markdown":
+        out_path = os.path.join(out_dir, f"export_{ts}.md")
+        with open(out_path, "w", encoding="utf-8") as f:
+            if rows:
+                f.write("| # | URL | 标题 | 状态 |\n")
+                f.write("|---|-----|------|------|\n")
+                for i, r in enumerate(rows, 1):
+                    st = "✅" if r["status"] == "success" else "❌"
+                    f.write(f"| {i} | {r['url'][:60]} | {r['title'][:40]} | {st} |\n")
+
+    return jsonify({
+        "format": fmt,
+        "path": out_path,
+        "total": len(rows),
+        "message": f"Exported {len(rows)} rows to {out_path}",
     })
 
 

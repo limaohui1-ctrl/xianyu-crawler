@@ -251,7 +251,107 @@
     html += '<span style="color:var(--text-dim)">ⓘ 该命令在安全测试模式下运行，仅写入 shadow 日志。</span>';
     box.innerHTML = html;
     showToast('已加入 ' + selected + ' 条候选来源到采集任务（仅 shadow 模式）');
+
+    // Show run button
+    var runBtn = document.getElementById('run_shadow_btn');
+    if(runBtn) runBtn.style.display = '';
   }
+
+  // ── Run Shadow Task ──
+  var _currentRunId = null, _pollTimer = null;
+  window.runShadowTask = function(){
+    var body = { task_id: 'discovery_task_' + Date.now(), max_urls: 20, rate_limit: 0.3 };
+    showToast('正在启动安全测试采集...');
+
+    apiCall('POST', '/api/tasks/run-shadow', body, function(err, result){
+      if(err || !result || result.error){
+        showToast('采集启动失败: ' + (result ? result.error : '服务未响应'));
+        return;
+      }
+      _currentRunId = result.run_id;
+      showToast('采集已启动: ' + result.run_id);
+
+      // Start polling
+      if(_pollTimer) clearInterval(_pollTimer);
+      _pollTimer = setInterval(function(){ pollTaskStatus(_currentRunId); }, 2000);
+      pollTaskStatus(_currentRunId);
+
+      // Switch to results page
+      switchPage('results');
+    });
+  };
+
+  // ── Poll Task Status ──
+  function pollTaskStatus(runId){
+    if(!runId) return;
+    apiCall('GET', '/api/tasks/status?run_id=' + runId, null, function(err, result){
+      if(err || !result) return;
+      renderTaskProgress(result);
+      if(result.status === 'completed' || result.status === 'failed'){
+        if(_pollTimer){ clearInterval(_pollTimer); _pollTimer = null; }
+        loadResults(runId);
+      }
+    });
+  }
+
+  // ── Render Task Progress ──
+  function renderTaskProgress(s){
+    var statusEl = document.getElementById('task_status_text');
+    var progEl = document.getElementById('task_progress_bar');
+    var msgEl = document.getElementById('task_message');
+    if(statusEl) statusEl.textContent = s.status || '';
+    if(progEl){
+      var pct = Math.round((s.progress || 0) * 100);
+      progEl.style.width = pct + '%';
+      progEl.textContent = pct + '%';
+    }
+    if(msgEl) msgEl.textContent = s.message || '';
+    var okEl = document.getElementById('task_ok'), failEl = document.getElementById('task_fail');
+    if(okEl) okEl.textContent = s.success || 0;
+    if(failEl) failEl.textContent = s.failed || 0;
+  }
+
+  // ── Load Results ──
+  function loadResults(runId){
+    apiCall('GET', '/api/results/list?limit=100', null, function(err, result){
+      if(err || !result){ showToast('加载结果失败'); return; }
+      renderResultsTable(result.rows || []);
+    });
+  }
+
+  // ── Render Results Table ──
+  function renderResultsTable(rows){
+    var tbody = document.getElementById('results_tbody');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    rows.forEach(function(r, i){
+      var tr = document.createElement('tr');
+      var stCls = r.status === 'success' ? 'badge-green' : 'badge-red';
+      var stTxt = r.status === 'success' ? '✅ 成功' : '❌ 失败';
+      tr.innerHTML =
+        '<td>' + (i+1) + '</td>' +
+        '<td style="font-family:monospace;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(r.url) + '">' + escapeHtml((r.url||'').substring(0,60)) + '</td>' +
+        '<td>' + escapeHtml(r.title || '') + '</td>' +
+        '<td>' + escapeHtml((r.description || '').substring(0,80)) + '</td>' +
+        '<td>' + escapeHtml(r.price || '') + '</td>' +
+        '<td><span class="' + stCls + '">' + stTxt + '</span></td>' +
+        '<td>' + escapeHtml(r.failure_reason || '') + '</td>' +
+        '<td>' + escapeHtml((r.collected_at || '').substring(0,16)) + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Export Results ──
+  window.exportResults = function(format){
+    showToast('正在导出 ' + format.toUpperCase() + ' ...');
+    apiCall('POST', '/api/results/export', {format: format}, function(err, result){
+      if(err || !result || result.error){
+        showToast('导出失败: ' + (result ? result.error : '服务未响应'));
+        return;
+      }
+      showToast('已导出 ' + result.total + ' 条 → ' + result.path);
+    });
+  };
 
   // ── Default dark mode ──
   document.body.classList.add('dark');

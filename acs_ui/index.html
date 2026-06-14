@@ -359,31 +359,36 @@
   <section class="page" id="page-results">
     <h2>采集结果</h2>
 
-    <div class="card">
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-        <input type="text" class="form-input" placeholder="🔍 搜索..." style="width:200px">
-        <button class="btn btn-sm">筛选 ▾</button>
-        <button class="btn btn-sm" onclick="showToast('已去除重复数据')">去重</button>
-        <button class="btn btn-sm" onclick="showToast('正在重新采集失败项...')">🔄 重试失败项</button>
-      </div>
-
-      <table class="data-table">
-        <thead><tr><th>#</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr><td>1</td><td>A Light in the Attic</td><td>£51.77</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
-          <tr><td>2</td><td>Tipping the Velvet</td><td>£53.74</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
-          <tr><td>3</td><td>Soumission</td><td>£50.10</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
-          <tr><td>4</td><td>Sharp Objects</td><td>£47.82</td><td><span class="badge-red">❌ 404</span></td><td><a href="#" class="link" onclick="showToast('失败原因：页面不存在 (HTTP 404)，已自动跳过')">重试</a></td></tr>
-          <tr><td>5</td><td>Sapiens</td><td>£54.23</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link">详情</a></td></tr>
-        </tbody>
-      </table>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px">
-        <span><span class="badge-green">86 条成功</span> <span class="badge-red">0 条失败</span></span>
+    <!-- Task Progress -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <span><strong>任务状态:</strong> <span id="task_status_text">就绪</span></span>
         <span>
-          <button class="btn btn-sm btn-primary" onclick="switchPage('export_page')">📥 导出全部结果</button>
+          ☑ 成功: <strong id="task_ok">0</strong> &nbsp;
+          ✕ 失败: <strong id="task_fail">0</strong>
         </span>
       </div>
+      <div style="background:var(--bg);border-radius:6px;height:20px;overflow:hidden;margin-bottom:6px">
+        <div id="task_progress_bar" style="background:var(--accent);height:100%;width:0%;text-align:center;font-size:11px;color:#fff;line-height:20px;transition:width 0.5s">0%</div>
+      </div>
+      <div id="task_message" style="font-size:12px;color:var(--text-dim)">等待采集任务启动</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="runShadowTask()" id="run_shadow_btn">▶ 开始测试采集</button>
+        <button class="btn btn-sm" onclick="loadResults()">🔄 刷新结果</button>
+        <button class="btn btn-sm" onclick="exportResults('json')">📋 导出 JSON</button>
+        <button class="btn btn-sm" onclick="exportResults('csv')">📄 导出 CSV</button>
+        <button class="btn btn-sm" onclick="exportResults('markdown')">📝 导出 Markdown</button>
+      </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="card">
+      <table class="data-table">
+        <thead><tr><th>#</th><th>URL</th><th>标题</th><th>描述</th><th>价格</th><th>状态</th><th>失败原因</th><th>时间</th></tr></thead>
+        <tbody id="results_tbody">
+          <tr><td colspan="8" style="text-align:center;color:var(--text-dim)">点击"开始测试采集"或"刷新结果"加载数据</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
