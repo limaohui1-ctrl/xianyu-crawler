@@ -96,7 +96,8 @@ def load_shadow_entries(shadow_log_path: str = None) -> list:
             line = line.strip()
             if not line: continue
             try: entries.append(json.loads(line))
-            except: pass
+            except Exception:  # skip malformed JSON lines
+                pass
     return entries
 
 
@@ -148,7 +149,8 @@ def evaluate_from_shadow(shadow_log_path: str = None, audit_log_path: str = None
                     if e.get("success"):
                         ai_calls += 1
                         ai_cost += e.get("estimated_cost", 0)
-                except: pass
+                except Exception:  # skip malformed audit log entries
+                    pass
     max_cost = float(os.environ.get("AI_MAX_COST_PER_RUN", "0.50"))
     cost_ratio = ai_cost / max(max_cost, 0.01)
 
@@ -160,7 +162,8 @@ def evaluate_from_shadow(shadow_log_path: str = None, audit_log_path: str = None
         stats = rs.get_stats()
         by = stats.get("by_status", {})
         high_risk = by.get("pending_review", 0)
-    except: pass
+    except Exception:  # review store may not exist
+        pass
 
     # Per-type stats
     type_stats = {}

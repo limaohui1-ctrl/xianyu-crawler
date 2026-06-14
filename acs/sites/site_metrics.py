@@ -13,8 +13,10 @@ class SiteMetrics:
             for line in f:
                 line = line.strip()
                 if not line: continue
-                try: entries.append(json.loads(line))
-                except: pass
+                try:
+                    entries.append(json.loads(line))
+                except Exception:  # skip malformed metrics lines
+                    pass
         return entries
 
     def site_summary(self, site_id: str) -> dict:

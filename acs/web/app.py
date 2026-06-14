@@ -361,15 +361,18 @@ def get_chart_data():
             rs=RepairReviewStore("acs_data/reviews.db")
             by=rs.get_stats().get("by_status",{})
             review["labels"]=list(by.keys()); review["values"]=list(by.values())
-        except: pass
+        except Exception:  # module may not be loaded
+            pass
         try:
             from acs.storage.structure_history_store import StructureHistoryStore
             ss=StructureHistoryStore("acs_data/structure_history.db")
             rows=ss.get_recent("",limit=30)
             struct["labels"]=[r.get("captured_at","")[5:16] for r in rows]
             struct["scores"]=[r.get("change_score",0) for r in rows]
-        except: pass
-    except: pass
+        except Exception:  # module may not be loaded
+            pass
+    except Exception:  # chart data loading best-effort
+        pass
     return {
         "shadow_labels":shadow["labels"],"shadow_success":shadow["success"],
         "ai_labels":ai["labels"],"ai_tokens":ai["tokens"],"ai_cost":ai["cost"],
@@ -400,7 +403,8 @@ def evaluation_content():
             ap_gate = f"<p class=ok>Approved by {latest.reviewer} on {latest.reviewed_at}</p>"
         elif latest:
             ap_gate = f"<p class=warn>Latest: {latest.decision} by {latest.reviewer}</p>"
-    except: pass
+    except Exception:  # approval gate may not be configured
+        pass
     try:
         from acs.ops.canary_runner import CanaryRunner
         cr = CanaryRunner()
@@ -441,7 +445,8 @@ def get_review_store():
         try:
             from acs.storage.repair_review_store import RepairReviewStore
             _RVS = RepairReviewStore("acs_data/reviews.db")
-        except: pass
+        except Exception:  # module may not be loaded
+            pass
     return _RVS
 
 _SS = None
@@ -451,7 +456,8 @@ def get_struct_store():
         try:
             from acs.storage.structure_history_store import StructureHistoryStore
             _SS = StructureHistoryStore("acs_data/structure_history.db")
-        except: pass
+        except Exception:  # module may not be loaded
+            pass
     return _SS
 
 def get_shadow_data():
@@ -467,7 +473,8 @@ def get_overview_data():
     try:
         from acs.observability.ai_call_audit import AICallAuditor
         cost = AICallAuditor("logs/ai_call_audit.jsonl").get_stats()
-    except: pass
+    except Exception:  # audit log may not exist
+        pass
     reviews = {"pending":0, "approved":0}
     try:
         store = get_review_store()
@@ -475,7 +482,8 @@ def get_overview_data():
             s = store.get_stats()
             by = s.get("by_status", {})
             reviews = {"pending": by.get("pending_review",0), "approved": by.get("approved",0)}
-    except: pass
+    except Exception:  # review store may not exist
+        pass
     from acs.ops.alert_rules import AlertEngine
     engine = AlertEngine()
     alerts = engine.check({

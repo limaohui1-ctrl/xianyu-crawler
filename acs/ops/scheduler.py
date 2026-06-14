@@ -19,8 +19,9 @@ def generate_and_save(report_type="daily"):
     try:
         from acs.storage.repair_review_store import RepairReviewStore
         rs = RepairReviewStore("acs_data/reviews.db")
-        reviews = rs.get_stats()
-    except: pass
+        schedules = json.load(f)
+    except Exception:  # schedules file may not exist yet
+        pass
     cost = {"total_ai_calls": audit.get("total_calls",0), "total_tokens": audit.get("total_tokens",0),
             "estimated_cost": audit.get("estimated_cost",0)}
     out_dir = f"reports/{report_type}"

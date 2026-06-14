@@ -19,7 +19,8 @@ class SiteRegistry:
                     cfg = SiteConfig.from_dict(item)
                     if cfg.site_id:
                         self._sites[cfg.site_id] = cfg
-            except: pass
+            except Exception:  # config file may not exist yet — use defaults
+                pass
         if not self._sites:
             for cfg in DEFAULT_SITES:
                 self._sites[cfg.site_id] = cfg

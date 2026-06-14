@@ -11,7 +11,8 @@ def shadow_trend_data():
                 line = line.strip()
                 if not line: continue
                 try: entries.append(json.loads(line))
-                except: pass
+                except Exception:  # skip malformed JSON lines
+                    pass
     labels = [e.get("ts", "")[:16] for e in entries[-30:]]
     success = [1 if e.get("acs_success") else 0 for e in entries[-30:]]
     completeness = [e.get("acs_completeness", 0) for e in entries[-30:]]
@@ -26,7 +27,8 @@ def ai_call_trend_data():
                 line = line.strip()
                 if not line: continue
                 try: entries.append(json.loads(line))
-                except: pass
+                except Exception:  # skip malformed JSON lines
+                    pass
     labels = [e.get("timestamp", "")[:16] for e in entries[-30:]]
     tokens = [e.get("tokens_prompt", 0) + e.get("tokens_completion", 0) for e in entries[-30:]]
     cost = [e.get("estimated_cost", 0) for e in entries[-30:]]
@@ -42,7 +44,8 @@ def parser_distribution_data():
                 line = line.strip()
                 if not line: continue
                 try: entries.append(json.loads(line))
-                except: pass
+                except Exception:  # skip malformed JSON lines
+                    pass
     dist = {}
     for e in entries:
         p = e.get("acs_parser", "unknown")

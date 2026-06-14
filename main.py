@@ -7,7 +7,7 @@ import time
 if os.name == "nt":
     import ctypes
 
-    _MUTEX_NAME = "Global\\UniversalWebCollector_SingleInstance_v1"
+    _MUTEX_NAME = "Global\\ACSDataAssistant_SingleInstance_v1"
     _mutex_handle = None
 
     def acquire_single_instance_lock():
@@ -132,38 +132,6 @@ def universal_self_test_env(runtime_dir):
     )
 
 
-def xianyu_self_test_env(runtime_dir):
-    os.environ["XIANYU_MONITOR_SELF_TEST"] = "1"
-    os.environ["XIANYU_MONITOR_SELF_TEST_DIR"] = runtime_dir
-    os.environ["XIANYU_MONITOR_SETTINGS_FILE"] = os.path.join(
-        runtime_dir, "app_settings.json"
-    )
-    os.environ["XIANYU_MONITOR_HIT_HISTORY_FILE"] = os.path.join(
-        runtime_dir, "hit_history.json"
-    )
-    os.environ["XIANYU_MONITOR_LOG_FILE"] = os.path.join(
-        runtime_dir, "monitor_log.txt"
-    )
-    os.environ["XIANYU_MONITOR_SMART_RULES_FILE"] = os.path.join(
-        runtime_dir, "smart_rules.json"
-    )
-    os.environ["XIANYU_MONITOR_ITEM_STATUS_FILE"] = os.path.join(
-        runtime_dir, "item_statuses.json"
-    )
-    os.environ["XIANYU_MONITOR_STARTUP_LOG_FILE"] = os.path.join(
-        runtime_dir, "startup_error.log"
-    )
-    os.environ["XIANYU_MONITOR_SELF_TEST_ERROR_LOG_FILE"] = os.path.join(
-        runtime_dir, "self_test_error.log"
-    )
-    os.environ["XIANYU_MONITOR_CHROME_PROFILE_DIR"] = os.path.join(
-        runtime_dir, "chrome-profile"
-    )
-    os.environ["XIANYU_MONITOR_CHROME_SESSION_FILE"] = os.path.join(
-        runtime_dir, "chrome_session.json"
-    )
-
-
 def write_error_log(file_path, text=None):
     os.makedirs(os.path.dirname(os.path.abspath(file_path)) or ".", exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
@@ -187,42 +155,28 @@ if __name__ == "__main__":
                 os.path.join(SELF_TEST_RUNTIME_DIR, f"pid-{os.getpid()}")
             )
             os.makedirs(runtime_dir, exist_ok=True)
-            if "--xianyu" not in sys.argv:
-                universal_self_test_env(runtime_dir)
-                clear_stale_universal_self_test_errors(runtime_dir)
-                write_universal_self_test_status(
-                    os.getpid(),
-                    "running",
-                    runtime_dir,
-                    os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST_ERROR_LOG_FILE", ""),
-                )
-                from universal_ui import run_universal_self_test
+            universal_self_test_env(runtime_dir)
+            clear_stale_universal_self_test_errors(runtime_dir)
+            write_universal_self_test_status(
+                os.getpid(),
+                "running",
+                runtime_dir,
+                os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST_ERROR_LOG_FILE", ""),
+            )
+            from universal_ui import run_universal_self_test
 
-                run_universal_self_test()
-                write_universal_self_test_status(
-                    os.getpid(),
-                    "passed",
-                    runtime_dir,
-                    os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST_ERROR_LOG_FILE", ""),
-                    exit_code=0,
-                )
-                sys.exit(0)
-            xianyu_self_test_env(runtime_dir)
-            from legacy_xianyu import app_core
-            from legacy_xianyu import self_test
-
-            self_test.run_self_test(app_core)
-        elif "--xianyu" in sys.argv:
-            from legacy_xianyu.app_core import ensure_runtime_dirs
-            from legacy_xianyu.app_core import main as run_app
-            from legacy_xianyu.app_core import STARTUP_LOG_FILE
-
-            ensure_runtime_dirs()
-            clear_stale_startup_error(STARTUP_LOG_FILE)
-            run_app()
+            run_universal_self_test()
+            write_universal_self_test_status(
+                os.getpid(),
+                "passed",
+                runtime_dir,
+                os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST_ERROR_LOG_FILE", ""),
+                exit_code=0,
+            )
+            sys.exit(0)
         else:
             if not acquire_single_instance_lock():
-                print("通用网站采集中心 已在运行。请勿重复启动。", file=sys.stderr)
+                print("ACS 资料采集助手 已在运行。请勿重复启动。", file=sys.stderr)
                 sys.exit(0)
             from universal_core import ensure_runtime_dirs, runtime_startup_log_file
             from universal_ui import run_universal_app
@@ -233,21 +187,15 @@ if __name__ == "__main__":
     except Exception:
         main_traceback = traceback.format_exc()
         try:
-            if "--xianyu" in sys.argv:
-                from legacy_xianyu.app_core import SELF_TEST_ERROR_LOG_FILE, STARTUP_LOG_FILE, ensure_runtime_dirs
-            else:
-                from universal_core import ensure_runtime_dirs, runtime_self_test_error_log_file, runtime_startup_log_file
+            from universal_core import ensure_runtime_dirs, runtime_self_test_error_log_file, runtime_startup_log_file
 
             ensure_runtime_dirs()
-            if "--xianyu" in sys.argv:
-                error_log_file = SELF_TEST_ERROR_LOG_FILE if "--self-test" in sys.argv else STARTUP_LOG_FILE
-            else:
-                error_log_file = runtime_self_test_error_log_file() if "--self-test" in sys.argv else runtime_startup_log_file()
+            error_log_file = runtime_self_test_error_log_file() if "--self-test" in sys.argv else runtime_startup_log_file()
         except Exception as error_log_exc:
             error_log_file = "self_test_error.log" if "--self-test" in sys.argv else "startup_error.log"
             sys.stderr.write(f"启动错误日志路径计算失败，使用当前目录兜底：{error_log_exc}\n")
         write_error_log(error_log_file, main_traceback)
-        if "--self-test" in sys.argv and "--xianyu" not in sys.argv:
+        if "--self-test" in sys.argv:
             try:
                 write_universal_self_test_status(
                     os.getpid(),

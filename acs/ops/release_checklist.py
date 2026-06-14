@@ -64,7 +64,8 @@ def _check_no_key_in_source(cwd):
                 src = fh.read()
             if "sk-" in src and "os.environ" not in src and "getenv" not in src and "API_KEY" not in src:
                 return False
-        except: pass
+        except Exception:  # file may be binary or unreadable — skip
+            pass
     return True
 
 if __name__ == "__main__":

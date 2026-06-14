@@ -32,7 +32,8 @@ class ApprovalRecord:
             try:
                 exp = time.mktime(time.strptime(self.expires_at, "%Y-%m-%dT%H:%M:%S"))
                 if time.time() > exp: return False
-            except: pass
+            except Exception:  # parse failure on stale expiry — treat as expired
+                return False
         return True
 
 class ApprovalGate:
@@ -47,7 +48,8 @@ class ApprovalGate:
                 with open(self.db_path, encoding="utf-8") as f:
                     data = json.load(f)
                 self._records = [ApprovalRecord(**item) for item in data]
-            except: pass
+            except Exception:  # gate file may be missing or corrupt
+                pass
 
     def _save(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)

@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title ACS 资料采集助手 v1.1.0-discovery
+title ACS 资料采集助手 v1.3.1
 
 :: ── Set project root ──
 cd /d "%~dp0"
@@ -8,7 +8,7 @@ cd /d "%~dp0"
 echo.
 echo +==========================================+
 echo |   ACS 资料采集助手                        |
-echo |   v1.1.2-desktop-polish 安全测试模式       |
+echo |   v1.3.1-delivery-cleanup 安全测试模式    |
 echo +==========================================+
 echo.
 

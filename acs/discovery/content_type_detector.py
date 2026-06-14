@@ -1,4 +1,9 @@
-"""ContentTypeDetector — identify content type from URL and snippet."""
+"""ContentTypeDetector — identify content category (topic level) from URL and snippet.
+
+NOTE: This classifies content by SUBJECT CATEGORY (news/policy/article/data/case),
+NOT by file format. For file format detection (webpage/pdf/doc/xls/csv), use
+acs.content.document_type_detector instead.
+"""
 import re
 from typing import List
 

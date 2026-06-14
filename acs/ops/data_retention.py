@@ -25,8 +25,10 @@ def cleanup(directories: list = None, max_age_days: int = 90, dry_run: bool = Tr
         old_files = list_old_files(d, max_age_days)
         for f in old_files:
             if not dry_run:
-                try: os.remove(f["path"])
-                except: pass
+                try:
+                    os.makedirs(target_dir, exist_ok=True)
+                except Exception:  # target_dir creation may fail on read-only parent
+                    pass
             f["status"] = "dry_run" if dry_run else "deleted"
         results["entries"].extend(old_files)
         results["total_size"] += sum(f["size"] for f in old_files)

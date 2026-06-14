@@ -11,6 +11,7 @@ dist_*/
 
 # Runtime data and local state
 self_test_runtime/
+self_test_runtime/pid-*/
 self_test_runtime_probe/
 chrome-profile/
 采集结果导出/

@@ -5,18 +5,19 @@ import sys
 
 
 def verify_launcher_layout(window):
-    if "通用网站采集中心" not in window.windowTitle():
+    if "ACS 资料采集助手" not in window.windowTitle():
         raise AssertionError("窗口标题错误")
-    if "闲鱼" in window.windowTitle() or "咸鱼" in window.windowTitle():
-        raise AssertionError("通用入口不应展示旧闲鱼产品名")
+    if "闲鱼" in window.windowTitle() or "咸鱼" in window.windowTitle() or "通用网站采集中心" in window.windowTitle():
+        raise AssertionError("通用入口不应展示旧产品名")
 
     source_only_launchers = (
-        "通用网站采集中心.spec",
+        "ACS_资料采集助手.spec",
     )
     universal_launchers = (
-        "启动通用网站采集中心.bat",
-        "启动通用网站采集中心_无黑窗.vbs",
-        "启动通用网站采集中心_EXE版.vbs",
+        "启动ACS资料采集助手.bat",
+        "start_acs_desktop.bat",
+        "start_acs_desktop.py",
+        "main.py",
     )
     if not getattr(sys, "frozen", False):
         universal_launchers = universal_launchers + source_only_launchers
@@ -26,15 +27,15 @@ def verify_launcher_layout(window):
             raise AssertionError(f"通用产品入口文件缺失：{launcher_name}")
         with open(launcher_path, "r", encoding="utf-8", errors="ignore") as file_obj:
             launcher_text = file_obj.read()
-        if launcher_name.startswith("启动通用") and "--xianyu" in launcher_text:
-            raise AssertionError(f"通用启动器不应进入闲鱼兼容模式：{launcher_name}")
+        if launcher_name.startswith("启动") and "--xianyu" in launcher_text:
+            raise AssertionError(f"启动器不应进入闲鱼兼容模式：{launcher_name}")
 
     expected_shortcut_targets = {
-        os.path.normcase(os.path.join(os.getcwd(), "启动通用网站采集中心_无黑窗.vbs")),
-        os.path.normcase(os.path.join(os.getcwd(), "启动通用网站采集中心.bat")),
+        os.path.normcase(os.path.join(os.getcwd(), "启动ACS资料采集助手.bat")),
+        os.path.normcase(os.path.join(os.getcwd(), "start_acs_desktop.bat")),
     }
-    desktop_shortcut = os.path.join(os.path.expanduser("~"), "Desktop", "通用网站采集中心.lnk")
-    project_shortcut = os.path.join(os.getcwd(), "通用网站采集中心.lnk")
+    desktop_shortcut = os.path.join(os.path.expanduser("~"), "Desktop", "ACS_资料采集助手.lnk")
+    project_shortcut = os.path.join(os.getcwd(), "ACS_资料采集助手.lnk")
     for shortcut_path in (desktop_shortcut, project_shortcut):
         if not os.path.exists(shortcut_path):
             raise AssertionError(f"快捷方式缺失，未同步到最新版本：{shortcut_path}")
@@ -49,28 +50,22 @@ def verify_launcher_layout(window):
         except ImportError:
             pass
 
+    # Legacy xianyu launchers have been archived to D:\ACS_Archive\
+    # They should NOT exist in the project root or old directory
     legacy_launcher_names = (
         "启动闲鱼监测软件.bat",
         "启动闲鱼监测软件_无黑窗.vbs",
         "启动闲鱼监测软件_EXE版.vbs",
     )
-    legacy_entry_dir = os.path.join(os.getcwd(), "旧版闲鱼兼容入口")
     if not getattr(sys, "frozen", False):
-        if not os.path.isdir(legacy_entry_dir):
-            raise AssertionError("旧闲鱼入口必须隔离到旧版闲鱼兼容入口目录")
         for legacy_launcher_name in legacy_launcher_names:
             root_legacy_path = os.path.join(os.getcwd(), legacy_launcher_name)
             if os.path.exists(root_legacy_path):
                 raise AssertionError(f"根目录不应保留旧闲鱼入口，避免误点：{legacy_launcher_name}")
-            legacy_path = os.path.join(legacy_entry_dir, legacy_launcher_name)
-            if not os.path.exists(legacy_path):
-                raise AssertionError(f"旧闲鱼兼容入口缺失：{legacy_launcher_name}")
-            with open(legacy_path, "r", encoding="utf-8", errors="ignore") as file_obj:
-                legacy_text = file_obj.read()
-            if "--xianyu" not in legacy_text:
-                raise AssertionError(f"旧闲鱼启动器必须显式进入兼容模式：{legacy_launcher_name}")
-        if os.path.exists(os.path.join(os.getcwd(), "闲鱼监测软件.lnk")):
-            raise AssertionError("根目录不应保留旧闲鱼快捷方式，避免和通用入口冲突")
+        # Legacy directory should also be gone
+        legacy_entry_dir = os.path.join(os.getcwd(), "旧版闲鱼兼容入口")
+        if os.path.isdir(legacy_entry_dir):
+            raise AssertionError("旧版闲鱼兼容入口目录已归档，不应留在项目根目录")
 
 
 def verify_home_tabs(window):

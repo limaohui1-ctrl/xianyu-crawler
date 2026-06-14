@@ -59,9 +59,9 @@ from core_firecrawl_flow import (
 )
 
 
-APP_NAME_EN = "UniversalWebCollector"
-APP_NAME_CN = "通用网站采集中心"
-APP_VERSION = "2026.06.13-ai-agent115"
+APP_NAME_EN = "ACSDataAssistant"
+APP_NAME_CN = "ACS 资料采集助手"
+APP_VERSION = "v1.3.1-delivery-cleanup"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
