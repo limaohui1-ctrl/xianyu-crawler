@@ -353,6 +353,28 @@
     });
   };
 
+  // ── Check Service Status (poll on home page) ──
+  function checkServiceStatus(){
+    apiCall('GET', '/api/health', null, function(err, result){
+      var icon = document.getElementById('svc_status_icon');
+      var text = document.getElementById('svc_status_text');
+      var mode = document.getElementById('svc_mode');
+      if(err || !result || result.error){
+        if(icon) icon.textContent = '⚠️';
+        if(text) text.textContent = '本地服务未连接 — 请运行 start_acs_desktop.bat 启动服务';
+        if(mode) mode.textContent = '';
+        return;
+      }
+      if(icon) icon.textContent = '✅';
+      if(text) text.textContent = '本地服务已连接 — 可以开始智能找资料';
+      if(mode) mode.textContent = '运行模式: ' + (result.acs_mode || 'shadow') + ' | 端口: 5020';
+    });
+  }
+
+  // Check on load and every 30s
+  checkServiceStatus();
+  setInterval(checkServiceStatus, 30000);
+
   // ── Default dark mode ──
   document.body.classList.add('dark');
 
