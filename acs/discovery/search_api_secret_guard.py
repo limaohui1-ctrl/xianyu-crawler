@@ -12,7 +12,7 @@ _KEY_PATTERN = re.compile(r"(api[_-]?key|authorization|token)\s*[:=]\s*[^\s,;]+"
 
 
 def mask_key(key: str) -> str:
-    """Return masked key for display: 'sk-...abcd'"""
+    """Return masked key for display: 'a1b...c2d3'"""
     if not key:
         return "[NOT SET]"
     if len(key) <= 8:
