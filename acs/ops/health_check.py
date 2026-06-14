@@ -82,7 +82,7 @@ def _check_chart_api():
             rv = c.get("/api/charts/shadow_trend")
             data = rv.get_json()
             ok = "labels" in data
-            return (ok, f"shadow_trend API {"OK" if ok else "ERROR"}")
+            return (ok, f"shadow_trend API {'OK' if ok else 'ERROR'}")
     except Exception as e:
         return (False, str(e)[:100])
 
@@ -91,7 +91,7 @@ def _check_cron_export():
         from acs.ops.scheduler import export_cron
         r = export_cron()
         ok = "daily_cron" in r and "weekly_cron" in r
-        return (ok, f"cron export {"OK" if ok else "ERROR"}")
+        return (ok, f"cron export {'OK' if ok else 'ERROR'}")
     except Exception as e:
         return (False, str(e)[:100])
 
