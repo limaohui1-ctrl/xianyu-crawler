@@ -327,7 +327,7 @@
     rows.forEach(function(r, i){
       var tr = document.createElement('tr');
       var stCls = r.status === 'success' ? 'badge-green' : 'badge-red';
-      var stTxt = r.status === 'success' ? '✅ 成功' : '❌ 失败';
+      var stTxt = r.status === 'success' ? '[PASS]' : '[FAIL]';
       tr.innerHTML =
         '<td>' + (i+1) + '</td>' +
         '<td style="font-family:monospace;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(r.url) + '">' + escapeHtml((r.url||'').substring(0,60)) + '</td>' +
@@ -360,12 +360,12 @@
       var text = document.getElementById('svc_status_text');
       var mode = document.getElementById('svc_mode');
       if(err || !result || result.error){
-        if(icon) icon.textContent = '⚠️';
+        if(icon) icon.textContent = '[WARN]';
         if(text) text.textContent = '本地服务未连接 — 请运行 start_acs_desktop.bat 启动服务';
         if(mode) mode.textContent = '';
         return;
       }
-      if(icon) icon.textContent = '✅';
+      if(icon) icon.textContent = '[OK]';
       if(text) text.textContent = '本地服务已连接 — 可以开始智能找资料';
       if(mode) mode.textContent = '运行模式: ' + (result.acs_mode || 'shadow') + ' | 端口: 5020';
     });

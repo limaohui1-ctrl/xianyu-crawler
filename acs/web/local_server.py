@@ -395,7 +395,7 @@ def results_export():
                 f.write("| # | URL | 标题 | 状态 |\n")
                 f.write("|---|-----|------|------|\n")
                 for i, r in enumerate(rows, 1):
-                    st = "✅" if r["status"] == "success" else "❌"
+                    st = "[PASS]" if r["status"] == "success" else "[FAIL]"
                     f.write(f"| {i} | {r['url'][:60]} | {r['title'][:40]} | {st} |\n")
 
     return jsonify({

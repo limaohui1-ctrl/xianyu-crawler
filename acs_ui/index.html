@@ -99,7 +99,7 @@
 
     <!-- Service Status -->
     <div id="service_status_bar" style="margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:13px;border:1px solid var(--border);background:var(--bg-card)">
-      <span id="svc_status_icon">⏳</span>
+      <span id="svc_status_icon">[...]</span>
       <span id="svc_status_text">正在检测本地服务...</span>
       <span style="color:var(--text-dim);margin-left:16px" id="svc_mode"></span>
     </div>
@@ -109,8 +109,8 @@
       <table class="data-table">
         <thead><tr><th>任务名称</th><th>状态</th><th>条数</th><th>时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr><td>书籍资料采集</td><td><span class="badge-green">✅ 已完成</span></td><td>86 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
-          <tr><td>电商测试采集</td><td><span class="badge-green">✅ 已完成</span></td><td>352 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
+          <tr><td>书籍资料采集</td><td><span class="badge-green">[OK] 已完成</span></td><td>86 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
+          <tr><td>电商测试采集</td><td><span class="badge-green">[OK] 已完成</span></td><td>352 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
         </tbody>
       </table>
     </div>
@@ -320,9 +320,9 @@
       <table class="data-table" style="margin-top:10px;max-height:240px;display:block;overflow-y:auto">
         <thead><tr><th>#</th><th>URL</th><th>状态</th></tr></thead>
         <tbody>
-          <tr><td>1</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html</td><td><span class="badge-green">✅</span></td></tr>
-          <tr><td>2</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html</td><td><span class="badge-green">✅</span></td></tr>
-          <tr><td>3</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/soumission_998/index.html</td><td><span class="badge-green">✅</span></td></tr>
+          <tr><td>1</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html</td><td><span class="badge-green">[OK]</span></td></tr>
+          <tr><td>2</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html</td><td><span class="badge-green">[OK]</span></td></tr>
+          <tr><td>3</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/soumission_998/index.html</td><td><span class="badge-green">[OK]</span></td></tr>
         </tbody>
       </table>
 
@@ -393,7 +393,7 @@
       <table class="data-table">
         <thead><tr><th>#</th><th>URL</th><th>标题</th><th>描述</th><th>价格</th><th>状态</th><th>失败原因</th><th>时间</th></tr></thead>
         <tbody id="results_tbody">
-          <tr><td colspan="8" style="text-align:center;color:var(--text-dim)">点击"开始测试采集"或"刷新结果"加载数据</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--text-dim)">点击 [开始测试采集] 或 [刷新结果] 加载数据</td></tr>
         </tbody>
       </table>
     </div>

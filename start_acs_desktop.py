@@ -17,19 +17,19 @@ def main():
     p.add_argument("--timeout", type=int, default=30, help="等待服务就绪超时秒数")
     args = p.parse_args()
 
-    print("╔══════════════════════════════════════════╗")
-    print("║   ACS 资料采集助手                        ║")
-    print("║   v1.1.0-discovery 安全测试模式            ║")
-    print("╚══════════════════════════════════════════╝")
+    print("+==========================================+")
+    print("|   ACS 资料采集助手                        |")
+    print("|   v1.1.2-desktop-polish 安全测试模式       |")
+    print("+==========================================+")
     print()
 
     # Set project root
     project_root = os.path.dirname(os.path.abspath(__file__))
     os.chdir(project_root)
-    print(f"[项目] {project_root}")
+    print(f"[PROJECT] {project_root}")
 
     # Check Python
-    print(f"[环境] Python {sys.version.split()[0]}")
+    print(f"[ENV] Python {sys.version.split()[0]}")
 
     # Check dependencies
     missing = []
@@ -39,15 +39,15 @@ def main():
         except ImportError:
             missing.append(mod)
     if missing:
-        print(f"[错误] 缺少依赖: {', '.join(missing)}")
+        print(f"[ERROR] 缺少依赖: {', '.join(missing)}")
         print(f"  请运行: pip install -r requirements.txt")
         sys.exit(1)
-    print("[依赖] 已满足")
+    print("[OK] 依赖已满足")
 
     # Check port
     from acs.web.server_launcher import check_port
     if not check_port(args.port):
-        print(f"[错误] 端口 {args.port} 已被占用。")
+        print(f"[ERROR] 端口 {args.port} 已被占用。")
         print(f"  请先关闭占用 {args.port} 端口的程序，再重新启动。")
         sys.exit(1)
 
@@ -55,8 +55,8 @@ def main():
     import subprocess
     import threading
 
-    print(f"[启动] 正在启动本地服务 {args.host}:{args.port} ...")
-    print(f"[模式] ACS_MODE=shadow（安全测试模式）")
+    print(f"[START] 正在启动本地服务 {args.host}:{args.port} ...")
+    print(f"[MODE] ACS_MODE=shadow（安全测试模式）")
 
     server_proc = subprocess.Popen(
         [sys.executable, "-m", "acs.web.local_server",
@@ -83,25 +83,25 @@ def main():
     if wait_for_health(health_url, timeout=args.timeout):
         print("[就绪] 服务已启动")
     else:
-        print(f"[警告] 服务未在 {args.timeout} 秒内就绪，请检查")
+        print(f"[WARN] 服务未在 {args.timeout} 秒内就绪，请检查")
         if server_proc.poll() is not None:
-            print("[错误] 服务进程已退出")
+            print("[ERROR] 服务进程已退出")
             sys.exit(1)
 
     # Open browser
     if not args.no_browser:
         from acs.web.browser_open import open_browser
         index_html = os.path.join(project_root, "acs_ui", "index.html")
-        print(f"[打开] 正在打开 {index_html} ...")
+        print(f"[OPEN] 正在打开 {index_html} ...")
         open_browser(index_html)
 
     print()
-    print("═══════════════════════════════════════════")
+    print("==========================================")
     print(f"  ACS 资料采集助手已启动")
     print(f"  本地地址: http://{args.host}:{args.port}")
     print(f"  安全模式: ACS_MODE=shadow")
     print(f"  真实生产: 未启用")
-    print("═══════════════════════════════════════════")
+    print("==========================================")
     print()
     print("按 Ctrl+C 退出...")
 
@@ -109,10 +109,10 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n[退出] 正在停止服务...")
+        print("\n[EXIT] 正在停止服务...")
         server_proc.terminate()
         server_proc.wait(timeout=5)
-        print("[退出] 已停止。")
+        print("[EXIT] 已停止。")
 
 
 if __name__ == "__main__":
