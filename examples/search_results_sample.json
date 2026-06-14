@@ -1,0 +1,27 @@
+[
+  {
+    "url": "https://www.epb.gov.cn/vocs-case-study",
+    "title": "园区VOCs治理典型案例分析",
+    "description": "系统介绍工业园区的挥发性有机物治理案例"
+  },
+  {
+    "url": "https://www.mee.gov.cn/activated-carbon-guidelines",
+    "title": "活性炭吸附技术在废气治理中的应用指南",
+    "description": "中华人民共和国生态环境部发布的活性炭吸附技术应用指南"
+  },
+  {
+    "url": "https://sthjj.zhuhai.gov.cn/vocs-compliance-report",
+    "title": "挥发性有机物治理整改报告汇编",
+    "description": "珠海市生态环境局发布的辖区内企业VOCs治理整改报告汇编"
+  },
+  {
+    "url": "https://www.chinaenvironment.org/vocs-annual-2025",
+    "title": "2025年度VOCs治理行业发展报告",
+    "description": "非营利组织发布的中国VOCs治理行业年度报告"
+  },
+  {
+    "url": "https://example.edu.cn/air-quality-research",
+    "title": "城市空气质量改善技术研究综述",
+    "description": "某高校环境学院发表的空气质量改善技术综述论文"
+  }
+]

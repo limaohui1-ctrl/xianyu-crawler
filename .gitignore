@@ -49,4 +49,6 @@ logs/
 acs_shadow_logs/
 acs_data/
 .env.smoke
-.envreports/
+.env
+reports/
+start_acs_desktop_output/

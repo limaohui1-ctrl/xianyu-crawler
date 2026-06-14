@@ -1,0 +1,15 @@
+# 示例 URL 文件 — 每行一个 URL
+# 以 # 开头的行是注释，导入时自动跳过
+#
+# 使用方式：在 ACS 资料采集助手中选择"导入搜索结果文件"→ 选择本文件
+
+https://www.epb.gov.cn/environmental/vocs-treatment-case
+https://www.mee.gov.cn/policy/air-quality-standards-2024
+https://sthjj.beijing.gov.cn/emission-control/activated-carbon
+https://www.chinaenvironment.org/reports/vocs-annual-2025
+https://example.edu.cn/research/industrial-waste-gas-treatment
+https://openknowledge.worldbank.org/handle/10986/air-quality
+https://www.unep.org/resources/report/air-pollution-control
+https://www.epa.gov/air-emissions-monitoring-knowledge-base
+https://www.sciencedirect.com/science/article/air-pollution-review
+https://pubmed.ncbi.nlm.nih.gov/vocs-health-effects
