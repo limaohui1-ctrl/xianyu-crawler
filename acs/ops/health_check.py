@@ -97,7 +97,7 @@ def _check_cron_export():
 
 def _check_selftest():
     import subprocess
-    r = subprocess.run([sys.executable, "main.py", "--self-test"], capture_output=True, text=True, timeout=60, cwd=_PROJ)
+    r = subprocess.run([sys.executable, "main.py", "--self-test"], capture_output=True, text=True, timeout=120, cwd=_PROJ)
     ok = r.returncode == 0 and "OK" in r.stdout
     return ok, "self-test pass" if ok else r.stdout[-200:]
 

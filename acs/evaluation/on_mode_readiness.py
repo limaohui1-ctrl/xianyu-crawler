@@ -234,6 +234,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--site-id", default="default")
     p.add_argument("--page-type", default="")
+    p.add_argument("--domain", default="")
     args = p.parse_args()
 
     if args.page_type:
@@ -242,6 +243,22 @@ def main():
         rs, extra = evaluate_from_shadow()
         sm = summary(rs, extra)
     sm["site_id"] = args.site_id
+
+    # ── Domain filter ──
+    if args.domain:
+        entries = load_shadow_entries()
+        domain_entries = [e for e in entries if args.domain in e.get("url", "")]
+        dn = len(domain_entries)
+        if dn:
+            successes = sum(1 for e in domain_entries if e.get("acs_success"))
+            comps = [e.get("acs_completeness", 0) for e in domain_entries if e.get("acs_success")]
+            sm["domain"] = args.domain
+            sm["domain_sample_count"] = dn
+            sm["domain_success_rate"] = successes / max(dn, 1)
+            sm["domain_avg_completeness"] = sum(comps) / max(len(comps), 1)
+            sm["domain_info"] = f"{dn} entries, {sum(comps)/max(len(comps),1):.1f}% completeness"
+        else:
+            sm["domain_info"] = f"no entries for {args.domain}"
     print(json.dumps(sm, ensure_ascii=False, indent=2))
 
 
