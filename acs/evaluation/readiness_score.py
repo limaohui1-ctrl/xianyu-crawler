@@ -66,6 +66,8 @@ def compute_readiness_score(
         level = "BLOCKED"
     elif sample_count < 100:
         level = "INSUFFICIENT_DATA"
+    elif avg_completeness < 0.60:
+        level = "NOT_READY"  # hard completeness gate
     elif score >= 0.85:
         level = "READY"
     elif score >= 0.60:

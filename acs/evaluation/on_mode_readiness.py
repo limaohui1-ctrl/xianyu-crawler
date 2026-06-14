@@ -39,9 +39,16 @@ def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
     if u.endswith(".csv"): return "csv_dataset"
     if u.endswith((".xml", ".rss", ".atom")): return "xml_feed"
     if u.endswith((".txt", ".md", ".robots.txt", ".geojson")): return "text_document"
-    # HTML pages
-    html_indicators = [".html", ".htm", "/product/", "/item/", "/shop/", "/goods/",
-                       "/listing/", "/search", "/detail/", "/posts/", "/articles/",
+    # Product page indicators (e-commerce, product detail, item pages)
+    product_indicators = [
+        "/catalogue/", "/product/", "/item/", "/shop/", "/goods/", "/detail/",
+        "/listing/", "/p/", "/dp/", "/products/", "index.html",
+        "toscrape.com/catalogue", "webscraper.io/test-sites/e-commerce",
+    ]
+    if any(x in u for x in product_indicators):
+        return "html_product_page"
+    # HTML generic pages
+    html_indicators = [".html", ".htm", "/search", "/posts/", "/articles/",
                        "/blog/", "/page/", "www.w3.org", "example.com"]
     if any(x in u for x in html_indicators) or not any(x in u for x in api_indicators):
         return "html_generic_page"
@@ -163,13 +170,45 @@ def summary(rs: ReadinessScore, extra: dict = None) -> dict:
     return d
 
 
+def evaluate_by_page_type(shadow_log_path: str = None, page_type: str = "html_product_page", audit_log_path: str = None) -> dict:
+    """Evaluate readiness for only one page_type."""
+    entries = load_shadow_entries(shadow_log_path)
+    all_count = len(entries)
+    cats = classify_all_entries(entries)
+    filtered = cats.get(page_type, [])
+    n = len(filtered)
+    if n == 0:
+        rs = compute_readiness_score(sample_count=0)
+        return summary(rs, {"page_type": page_type, "filtered_count": 0, "all_count": all_count,
+                            "message": f"No entries for page_type={page_type}"})
+
+    successes = sum(1 for e in filtered if e.get("acs_success"))
+    comp_vals = [e.get("acs_completeness", 0) for e in filtered if e.get("acs_success")]
+    severe = sum(1 for e in filtered if e.get("acs_error") and
+                 ("401" in str(e.get("acs_error","")) or "500" in str(e.get("acs_error","")) or
+                  "timeout" in str(e.get("acs_error","")).lower()))
+
+    rs = compute_readiness_score(
+        sample_count=n,
+        success_rate=successes / max(n, 1),
+        avg_completeness=sum(comp_vals) / max(len(comp_vals), 1) / 100.0,
+        severe_error_rate=severe / max(n, 1),
+        cost_ratio=0.0,  # cost from audit log; omit for page-type
+    )
+    return summary(rs, {"page_type": page_type, "filtered_count": n, "all_count": all_count})
+
 def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--site-id", default="default")
+    p.add_argument("--page-type", default="")
     args = p.parse_args()
-    rs, extra = evaluate_from_shadow()
-    sm = summary(rs, extra)
+
+    if args.page_type:
+        sm = evaluate_by_page_type(page_type=args.page_type)
+    else:
+        rs, extra = evaluate_from_shadow()
+        sm = summary(rs, extra)
     sm["site_id"] = args.site_id
     print(json.dumps(sm, ensure_ascii=False, indent=2))
 
