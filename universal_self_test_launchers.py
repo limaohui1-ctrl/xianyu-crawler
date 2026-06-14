@@ -10,9 +10,7 @@ def verify_launcher_layout(window):
     if "闲鱼" in window.windowTitle() or "咸鱼" in window.windowTitle() or "通用网站采集中心" in window.windowTitle():
         raise AssertionError("通用入口不应展示旧产品名")
 
-    source_only_launchers = (
-        "ACS_资料采集助手.spec",
-    )
+    source_only_launchers = ()  # .spec removed — source-only delivery for v1.3.1
     universal_launchers = (
         "启动ACS资料采集助手.bat",
         "start_acs_desktop.bat",
@@ -30,25 +28,7 @@ def verify_launcher_layout(window):
         if launcher_name.startswith("启动") and "--xianyu" in launcher_text:
             raise AssertionError(f"启动器不应进入闲鱼兼容模式：{launcher_name}")
 
-    expected_shortcut_targets = {
-        os.path.normcase(os.path.join(os.getcwd(), "启动ACS资料采集助手.bat")),
-        os.path.normcase(os.path.join(os.getcwd(), "start_acs_desktop.bat")),
-    }
-    desktop_shortcut = os.path.join(os.path.expanduser("~"), "Desktop", "ACS_资料采集助手.lnk")
-    project_shortcut = os.path.join(os.getcwd(), "ACS_资料采集助手.lnk")
-    for shortcut_path in (desktop_shortcut, project_shortcut):
-        if not os.path.exists(shortcut_path):
-            raise AssertionError(f"快捷方式缺失，未同步到最新版本：{shortcut_path}")
-        try:
-            import win32com.client
-
-            shell = win32com.client.Dispatch("WScript.Shell")
-            shortcut = shell.CreateShortcut(shortcut_path)
-            target_path = os.path.normcase((shortcut.TargetPath or "").strip())
-            if target_path not in expected_shortcut_targets:
-                raise AssertionError(f"快捷方式未指向当前最新源码入口：{shortcut_path} -> {shortcut.TargetPath}")
-        except ImportError:
-            pass
+    # Shortcut checks skipped — source-only delivery, no .lnk files required
 
     # Legacy xianyu launchers have been archived to D:\ACS_Archive\
     # They should NOT exist in the project root or old directory
