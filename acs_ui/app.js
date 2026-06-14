@@ -54,9 +54,9 @@
   // ── Provider Change ──
   window.onProviderChange = function(){
     var p = document.getElementById('provider_select').value;
-    var descs = {'mock':'使用内置演示数据测试发现流程。','import-file':'从 CSV/JSON/TXT/Markdown 文件导入 URL 列表。','sitemap':'从公开 sitemap.xml 自动发现所有页面 URL。','rss':'从公开 RSS/Atom feed 提取文章链接。','auto-domain':'输入域名，自动发现 robots.txt、sitemap、RSS 和常见资料入口。'};
+    var descs = {'topic-search':'输入主题和关键词，系统自动全网搜索相关资料。未配置搜索 API 时使用演示数据。','mock':'使用内置演示数据测试发现流程。','import-file':'从 CSV/JSON/TXT/Markdown 文件导入 URL 列表。','sitemap':'从公开 sitemap.xml 自动发现所有页面 URL。','rss':'从公开 RSS/Atom feed 提取文章链接。','auto-domain':'输入域名，自动发现 robots.txt、sitemap、RSS 和常见资料入口。'};
     document.getElementById('provider_desc').textContent = descs[p] || '';
-    ['mock','import','sitemap','rss','auto_domain'].forEach(function(k){
+    ['topic_search','mock','import','sitemap','rss','auto_domain'].forEach(function(k){
       var el = document.getElementById('inputs_'+k);
       if(el) el.style.display = (k === p) ? '' : 'none';
     });
@@ -81,7 +81,10 @@
   function getProviderInput(){
     var p = document.getElementById('provider_select').value;
     var topic = '', keywords = '', pathOrUrl = '';
-    if(p === 'mock'){
+    if(p === 'topic-search'){
+      topic = document.getElementById('topic_ts').value || '园区废气治理案例';
+      keywords = document.getElementById('keywords_ts').value || 'VOCs,活性炭,整改报告';
+    } else if(p === 'mock'){
       topic = document.getElementById('topic_mock').value || '园区废气治理案例';
       keywords = document.getElementById('keywords_mock').value || 'VOCs,活性炭,整改报告';
     } else if(p === 'import-file'){
@@ -119,6 +122,10 @@
       body.enable_sitemap = document.getElementById('ad_sitemap').checked;
       body.enable_rss = document.getElementById('ad_rss').checked;
       body.enable_entry = document.getElementById('ad_entry').checked;
+    }
+    if(inp.provider === 'topic-search') {
+      body.content_type = document.getElementById('content_type_ts').value;
+      body.prefer_gov_edu = document.getElementById('ts_gov_first').checked;
     }
 
     showToast('正在发现候选来源...');

@@ -21,3 +21,11 @@ from .site_entry_discovery import SiteEntryDiscovery
 from .url_normalizer import normalize_url, dedup_urls
 from .domain_profile import DomainProfile, discover_domain
 from .discovery_plus_report import DiscoveryPlusReport
+from .topic_query_planner import TopicQueryPlanner
+from .search_api_config import SearchApiConfig, get_search_api_config
+from .search_api_provider import SearchApiProvider, MockSearchApiProvider, SearchApiResult
+from .content_type_detector import detect_content_type, classify_candidates
+from .source_quality_scorer import score_source_quality
+from .candidate_deduplicator import dedup_candidates
+from .topic_candidate_ranker import rank_topic_candidates
+from .topic_discovery_flow import discover_by_topic, TopicDiscoveryReport

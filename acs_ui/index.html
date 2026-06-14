@@ -126,17 +126,47 @@
       <div class="form-group">
         <label>资料发现方式</label>
         <select class="form-input" id="provider_select" onchange="onProviderChange()" style="width:260px">
+          <option value="topic-search">按主题全网找资料</option>
+          <option value="auto-domain">自动发现网站资料</option>
           <option value="mock">Mock 演示数据</option>
           <option value="import-file">导入搜索结果文件</option>
           <option value="sitemap">Sitemap</option>
           <option value="rss">RSS / Atom</option>
-          <option value="auto-domain">自动发现网站资料</option>
         </select>
         <div id="provider_desc" style="margin-top:4px;font-size:12px;color:var(--text-dim)">使用内置演示数据测试发现流程。</div>
       </div>
 
+      <!-- topic-search inputs -->
+      <div id="inputs_topic_search" style="display:none">
+        <div class="form-group">
+          <label>资料主题</label>
+          <input type="text" class="form-input" id="topic_ts" placeholder="例如：园区废气治理案例、半导体行业趋势...">
+        </div>
+        <div class="form-group">
+          <label>关键词（逗号分隔）</label>
+          <input type="text" class="form-input" id="keywords_ts" placeholder="例如：VOCs, 活性炭, 整改报告">
+        </div>
+        <div class="form-group">
+          <label>资料类型（可选）</label>
+          <select class="form-input" id="content_type_ts">
+            <option value="">不限</option>
+            <option value="webpage">网页资料</option>
+            <option value="news">新闻</option>
+            <option value="policy">政策</option>
+            <option value="pdf">PDF 文档</option>
+            <option value="case">案例</option>
+            <option value="article">文章</option>
+            <option value="data">数据</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;font-size:13px">
+          <label style="cursor:pointer"><input type="checkbox" id="ts_gov_first" checked> 优先公开机构网站 (gov/edu/org)</label>
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);margin-top:4px">输入主题后，系统自动生成多组搜索查询，从公开网络资料源中发现候选资料。搜索 API 未配置时使用演示数据。</p>
+      </div>
+
       <!-- Mock inputs -->
-      <div id="inputs_mock">
+      <div id="inputs_mock" style="display:none">
         <div class="form-group">
           <label>资料主题</label>
           <input type="text" class="form-input" id="topic_mock" placeholder="例如：园区废气治理案例、半导体行业趋势...">

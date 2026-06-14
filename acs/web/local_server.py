@@ -89,6 +89,9 @@ def discovery_run():
         extra["enable_sitemap"] = data.get("enable_sitemap", True)
         extra["enable_rss"] = data.get("enable_rss", True)
         extra["enable_entry"] = data.get("enable_entry", True)
+    elif provider == "topic-search":
+        extra["content_type"] = data.get("content_type", "")
+        extra["prefer_gov_edu"] = data.get("prefer_gov_edu", True)
 
     try:
         if provider == "auto-domain":
@@ -138,6 +141,29 @@ def discovery_run():
                 "feeds_found": len(profile.feed_urls_discovered),
                 "entries_found": len(profile.site_entries),
                 "query": {"topic": topic, "keywords": keywords, "provider": "auto-domain", "domain": profile.domain},
+            })
+
+        if provider == "topic-search":
+            from acs.discovery.topic_discovery_flow import discover_by_topic
+            report = discover_by_topic(
+                topic=topic,
+                keywords=keywords,
+                content_type=extra.get("content_type", ""),
+                limit=limit,
+                provider="mock",
+                prefer_gov_edu=extra.get("prefer_gov_edu", True),
+            )
+            return jsonify({
+                "batch_id": report.batch_id,
+                "total_candidates": report.after_filter,
+                "allowed_count": report.allowed,
+                "needs_review_count": report.needs_review,
+                "blocked_count": report.blocked,
+                "candidates": report.candidates,
+                "queries_generated": report.queries_generated,
+                "raw_results": report.raw_results,
+                "after_dedup": report.after_dedup,
+                "query": {"topic": topic, "keywords": keywords, "provider": "topic-search"},
             })
 
         result = sd.discover(
