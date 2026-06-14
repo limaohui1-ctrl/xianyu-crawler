@@ -1,4 +1,7 @@
-"""SiteEntryDiscovery — probe common public entry points on a domain."""
+"""SiteEntryDiscovery — probe common public entry points on a domain.
+
+Commercial platforms are pre-blocked BEFORE any network request.
+"""
 from typing import List, Optional
 
 from .candidate_url import CandidateUrl
@@ -11,14 +14,26 @@ COMMON_ENTRY_PATHS = [
 ]
 
 
+def _is_commercial(domain: str) -> bool:
+    """Check if domain is a known commercial platform BEFORE any network call."""
+    from .compliance_filter import BLOCKED_DOMAINS
+    dl = domain.lower()
+    for b in BLOCKED_DOMAINS:
+        if dl == b or dl.endswith("." + b):
+            return True
+    return False
+
+
 class SiteEntryDiscovery:
-    """Probe common public entry points. Only HEAD requests, no content scraping."""
+    """Probe common public entry points. Commercial domains rejected before fetch."""
 
     def __init__(self, domain: str, root_url: str, fetch_func=None):
         self.domain = domain
         self.root_url = root_url.rstrip("/")
         self._fetch = fetch_func or self._default_fetch
         self.entries: List[dict] = []
+        self.blocked = False
+        self.block_reason = ""
 
     @staticmethod
     def _default_fetch(url: str) -> tuple:
@@ -31,7 +46,12 @@ class SiteEntryDiscovery:
             return None, str(e)
 
     def probe(self, max_paths: int = 15) -> List[dict]:
-        """Probe common paths and return CandidateUrl dicts for accessible ones."""
+        """Probe common paths. Returns empty list with block_reason if commercial."""
+        if _is_commercial(self.domain):
+            self.blocked = True
+            self.block_reason = f"Commercial platform blocked: {self.domain}"
+            return []
+
         paths = COMMON_ENTRY_PATHS[:max_paths]
         for path in paths:
             url = self.root_url + path

@@ -60,13 +60,11 @@ def parse_domain(raw: str) -> DomainInput:
     if _PRIVATE_IP.match(host):
         return DomainInput(raw=raw, domain=host, reason="private IP not allowed")
 
-    # Normalize: lowercase, strip www for portable domain representation
+    # Normalize: lowercase only. Keep www — some sites differ at root.
     domain = host.lower()
-    if domain.startswith("www."):
-        domain = domain[4:]
 
     scheme = parsed.scheme or "https"
-    root_url = f"{scheme}://{host}"
+    root_url = f"{scheme}://{domain}"
 
     return DomainInput(
         raw=raw,

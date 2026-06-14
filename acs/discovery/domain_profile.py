@@ -1,6 +1,7 @@
 """DomainProfile — aggregate all discovery results for a single domain."""
 from typing import List, Optional
 from dataclasses import dataclass, field, asdict
+from urllib.parse import urlparse
 
 from .domain_input import DomainInput, parse_domain
 from .url_normalizer import dedup_urls
@@ -25,6 +26,42 @@ class DomainProfile:
         return asdict(self)
 
 
+def _apply_robots_disallow(candidates: List[dict], disallow_paths: List[str]):
+    """Mark candidates whose URL path matches a robots Disallow rule.
+
+    Matching URLs get compliance_status='blocked' with reason='robots_disallow_path'.
+    Does NOT skip — marks explicitly so the user sees the reason.
+    """
+    if not disallow_paths:
+        return
+    for c in candidates:
+        url = c.get("url", "")
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        for dp in disallow_paths:
+            dp = dp.strip()
+            if not dp:
+                continue
+            # Exact or prefix match
+            if path == dp or path.startswith(dp):
+                # Blocked — robots explicitly disallows
+                c["compliance_status"] = "blocked"
+                c["risk_level"] = "high"
+                c["reason"] = f"robots Disallow: {dp}"
+                c["robots_hint"] = f"Disallow: {dp}"
+                break
+
+
+def _is_commercial_domain(domain: str) -> bool:
+    """Check if domain is a known commercial platform. No network call."""
+    from .compliance_filter import BLOCKED_DOMAINS
+    domain_lower = domain.lower()
+    for blocked in BLOCKED_DOMAINS:
+        if domain_lower == blocked or domain_lower.endswith("." + blocked):
+            return True
+    return False
+
+
 def discover_domain(
     raw_input: str,
     fetch_func=None,
@@ -39,10 +76,23 @@ def discover_domain(
 
     This is the main orchestrator for ACS v1.2.0 domain-level discovery.
     Does NOT call real search engines. Does NOT access commercial platforms.
+
+    Safety rules:
+    - Commercial platforms are blocked BEFORE any network request.
+    - robots.txt Disallow paths mark matching candidates as blocked.
     """
     di = parse_domain(raw_input)
     if not di.is_valid:
         return DomainProfile(domain=di.domain, error=di.reason)
+
+    # ── Commercial domain pre-block ──
+    if _is_commercial_domain(di.domain):
+        return DomainProfile(
+            domain=di.domain,
+            root_url=di.root_url,
+            error=f"Commercial platform blocked: {di.domain}",
+            total_candidates=0,
+        )
 
     profile = DomainProfile(domain=di.domain, root_url=di.root_url)
 
@@ -74,13 +124,20 @@ def discover_domain(
         profile.feed_urls_discovered = rd.found_feeds
         profile.feed_candidates = rd.parse_feeds(limit=max_candidates)
 
-    # 4. Site entry
+    # 4. Site entry (only if domain passed commercial pre-block above)
     if enable_site_entry:
         from .site_entry_discovery import SiteEntryDiscovery
         se = SiteEntryDiscovery(di.domain, di.root_url, fetch_func=fetch_func)
         profile.site_entries = se.probe(max_paths=12)
 
-    # 5. Merge + dedup
+    # 5. Apply robots Disallow rules to all candidates
+    if profile.robots_disallow_paths:
+        _apply_robots_disallow(profile.sitemap_candidates, profile.robots_disallow_paths)
+        _apply_robots_disallow(profile.feed_candidates, profile.robots_disallow_paths)
+        _apply_robots_disallow(profile.site_entries, profile.robots_disallow_paths)
+        _apply_robots_disallow(profile.robots_candidates, profile.robots_disallow_paths)
+
+    # 6. Merge + dedup
     all_candidates = (
         profile.robots_candidates +
         profile.sitemap_candidates +

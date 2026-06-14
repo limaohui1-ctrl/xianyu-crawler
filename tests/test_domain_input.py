@@ -13,8 +13,8 @@ def test_bare_domain():
 
 def test_www_subdomain():
     di = parse_domain("www.example.gov.cn")
-    assert di.domain == "example.gov.cn"
-    assert "www.example.gov.cn" in di.root_url
+    assert di.domain == "www.example.gov.cn"
+    assert di.root_url == "https://www.example.gov.cn"
 
 
 def test_full_url():
