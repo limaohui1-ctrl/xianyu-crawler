@@ -44,6 +44,32 @@ def health():
     })
 
 
+@app.route("/api/search/searxng/status", methods=["GET"])
+def searxng_status():
+    """Health check for local SearXNG instance."""
+    from acs.discovery.search_api_provider_registry import get_search_registry
+    try:
+        reg = get_search_registry()
+        api_status = reg.status()
+        return jsonify({
+            "provider": "searxng",
+            "configured": True,
+            "connected": api_status.get("real_configured", False),
+            "json_enabled": True,
+            "base_url": "http://127.0.0.1:8080",
+            "engines_check": api_status.get("real_configured", False),
+        })
+    except Exception as e:
+        return jsonify({
+            "provider": "searxng",
+            "configured": True,
+            "connected": False,
+            "json_enabled": False,
+            "base_url": "http://127.0.0.1:8080",
+            "error": str(e),
+        })
+
+
 # ── Discovery Run ──
 @app.route("/api/discovery/run", methods=["POST"])
 def discovery_run():

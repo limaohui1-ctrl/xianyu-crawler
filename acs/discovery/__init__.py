@@ -32,6 +32,7 @@ from .topic_discovery_flow import discover_by_topic, TopicDiscoveryReport
 from .search_api_secret_guard import mask_key, safe_headers, sanitize_error, redact_headers
 from .search_api_quota import SearchApiQuota
 from .search_api_clients import (
-    BingSearchClient, NoopSearchClient, create_search_client, BaseSearchClient,
+    BingSearchClient, SearXNGSelfHostClient, DuckDuckGoDirectClient,
+    NoopSearchClient, create_search_client, BaseSearchClient,
 )
 from .search_api_provider_registry import SearchApiRegistry, get_search_registry

@@ -407,11 +407,11 @@
     if(api.real_configured){
       el.style.background = '#e8f5e9';
       el.style.color = '#2e7d32';
-      el.textContent = '[OK] 真实搜索 API 已连接 (' + api.active + ')，返回候选资料 ' + result.total_candidates + ' 条';
+      el.textContent = '[OK] SearXNG 本地搜索已连接（' + (api.active || 'searxng') + '），返回候选资料 ' + result.total_candidates + ' 条';
     } else {
       el.style.background = '#fff3e0';
       el.style.color = '#e65100';
-      el.textContent = '[WARN] 搜索 API 未配置，当前为 Mock 演示模式。在 .env 中设置 BING_SEARCH_API_KEY 后启用真实搜索。';
+      el.textContent = '[WARN] 本地 SearXNG 未连接，当前为 Mock 演示模式。请启动 Docker Desktop 和 acs-searxng 容器以启用真实搜索。';
     }
   }
 
