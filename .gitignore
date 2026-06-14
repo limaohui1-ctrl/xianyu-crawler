@@ -51,4 +51,5 @@ acs_data/
 .env.smoke
 .env
 reports/
+release/
 start_acs_desktop_output/
