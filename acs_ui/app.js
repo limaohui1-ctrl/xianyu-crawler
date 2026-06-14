@@ -1,4 +1,4 @@
-/* ── ACS Console: App Logic ── */
+/* ── ACS 资料采集助手 — App Logic ── */
 (function(){
   'use strict';
 
@@ -27,13 +27,13 @@
     var body = document.body;
     var icon = document.getElementById('theme-icon');
     var label = document.getElementById('theme-label');
-    body.classList.toggle('light');
-    if(body.classList.contains('light')){
-      icon.textContent = '☀';
-      label.textContent = '亮色';
-    } else {
+    body.classList.toggle('dark');
+    if(body.classList.contains('dark')){
       icon.textContent = '☾';
       label.textContent = '暗色';
+    } else {
+      icon.textContent = '☀';
+      label.textContent = '亮色';
     }
   };
 
@@ -41,18 +41,18 @@
   window.exportReport = function(){
     var data = {
       version: 'ACS v1.0.0-sandbox',
-      acs_mode: 'shadow',
-      real_phase10: false,
-      sandbox_canary: 'completed',
-      test_readiness: 'READY (books.toscrape.com 352/100%/63.5%)',
-      real_readiness: 'NOT_READY',
-      tests: '529/529 pytest, 15/15 health, 11/11 release',
-      exported_at: new Date().toISOString()
+      app: '资料采集助手',
+      exported_at: new Date().toISOString(),
+      total_entries: 86,
+      success: 86,
+      failed: 0,
+      site: 'books.toscrape.com',
+      completeness: '63.5%'
     };
     var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'acs_status_' + new Date().toISOString().slice(0,10) + '.json';
+    a.download = '资料导出_' + new Date().toISOString().slice(0,10) + '.json';
     a.click();
   };
 
@@ -69,5 +69,8 @@
     toast.classList.add('show');
     setTimeout(function(){ toast.classList.remove('show'); }, 2200);
   };
+
+  // ── Default dark mode ──
+  document.body.classList.add('dark');
 
 })();

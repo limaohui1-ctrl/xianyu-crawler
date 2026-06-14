@@ -3,391 +3,338 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ACS 业务控制台</title>
+<title>ACS 资料采集助手</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <!-- ── Sidebar ── -->
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-brand">
-    <span class="brand-icon">◆</span>
+    <span class="brand-icon">📋</span>
     <div>
-      <div class="brand-name">ACS 业务控制台</div>
-      <div class="brand-ver">安全模拟模式</div>
+      <div class="brand-name">ACS 资料采集助手</div>
+      <div class="brand-ver">安全测试模式</div>
     </div>
   </div>
   <div class="sidebar-nav">
     <a class="nav-item active" data-page="overview" onclick="switchPage('overview')">
-      <span class="nav-icon">◈</span> 1. 运行总览
+      <span class="nav-icon">🏠</span> 首页
     </a>
-    <a class="nav-item" data-page="security" onclick="switchPage('security')">
-      <span class="nav-icon">◈</span> 2. 合规确认
+    <a class="nav-item" data-page="new_task" onclick="switchPage('new_task')">
+      <span class="nav-icon">📋</span> 新建采集
     </a>
-    <a class="nav-item" data-page="canary" onclick="switchPage('canary')">
-      <span class="nav-icon">◒</span> 3. 模拟测试
+    <a class="nav-item" data-page="sources" onclick="switchPage('sources')">
+      <span class="nav-icon">📂</span> 资料来源
     </a>
+    <a class="nav-item" data-page="fields" onclick="switchPage('fields')">
+      <span class="nav-icon">⚙</span> 字段规则
+    </a>
+    <a class="nav-item" data-page="results" onclick="switchPage('results')">
+      <span class="nav-icon">📊</span> 采集结果
+    </a>
+    <a class="nav-item" data-page="export_page" onclick="switchPage('export_page')">
+      <span class="nav-icon">📥</span> 导出报告
+    </a>
+    <div class="nav-separator"></div>
     <a class="nav-item nav-item-sub" data-page="readiness" onclick="switchPage('readiness')">
-      <span class="nav-icon">◉</span> [诊断] 环境就绪度
-    </a>
-    <a class="nav-item nav-item-sub" data-page="release" onclick="switchPage('release')">
-      <span class="nav-icon">◗</span> [诊断] 发布阻塞项
+      <span class="nav-icon">🔧</span> 高级设置
     </a>
   </div>
   <div class="sidebar-footer">
-    <div class="theme-toggle" onclick="toggleTheme()" title="切换明暗主题">
-      <span id="theme-icon">☾</span>
-      <span id="theme-label">暗色</span>
-    </div>
-    <div class="sidebar-status">
-      <div class="dot green"></div> 系统正常
+    <div class="theme-toggle" onclick="toggleTheme()">
+      <span id="theme-icon">☾</span> <span id="theme-label">暗色</span>
     </div>
   </div>
 </nav>
 
 <!-- ── Main Content ── -->
 <main class="main">
-  <!-- Top Bar -->
   <header class="topbar">
     <div class="topbar-left">
-      <span class="mode-badge badge-shadow">当前状态：安全测试模式</span>
-      <span class="mode-badge badge-sandbox">运行环境：隔离沙盒</span>
-      <span class="mode-badge badge-safe">真实生产：未启用</span>
+      <span class="topbar-title">ACS 资料采集助手</span>
     </div>
     <div class="topbar-right">
       <span class="topbar-time" id="clock">--</span>
-      <button class="btn btn-sm btn-export" onclick="exportReport()">▼ 导出报告</button>
+      <button class="btn btn-sm" onclick="exportReport()">📥 导出报告</button>
     </div>
   </header>
 
-  <!-- Guide Banner -->
-  <div class="security-banner-new">
-    <span class="banner-icon">i</span>
-    <strong>操作指引：</strong>
-    当前处于安全测试环境。请按照左侧 1 → 2 → 3 步骤顺次操作。
-  </div>
-
-  <!-- ── Page: Overview ── -->
+  <!-- ── Page: Home ── -->
   <section class="page active" id="page-overview">
-    <h2>运行总览</h2>
-
-    <div class="user-summary-grid">
-      <div class="user-card">
-        <div class="user-card-title">系统状态</div>
-        <div class="user-card-main text-ready">安全运行中</div>
-        <div class="user-card-desc">当前为安全测试模式，真实生产未启用。<br><small>技术状态：ACS_MODE=shadow</small></div>
-      </div>
-      <div class="user-card">
-        <div class="user-card-title">当前可以做什么</div>
-        <div class="user-card-main">测试采集</div>
-        <div class="user-card-desc">可以导入 URL、运行测试采集、查看报告、导出报告。<br>暂不建议连接真实商业平台。</div>
-      </div>
-      <div class="user-card">
-        <div class="user-card-title">下一步建议</div>
-        <div class="user-card-main text-warn">准备合规 URL</div>
-        <div class="user-card-desc">真实生产需要单一合规目标站点 ≥100 条公开 HTML 产品详情页 URL。</div>
-      </div>
-      <div class="user-card">
-        <div class="user-card-title">发布状态</div>
-        <div class="user-card-main">沙盒发布版</div>
-        <div class="user-card-desc">ACS v1.0.0-sandbox<br>可用作演练和内部测试，真实生产未启用。</div>
-      </div>
-    </div>
+    <h2>导入网址或文件，自动采集、整理并导出资料。</h2>
 
     <div class="action-row">
-      <button class="btn btn-primary-soft" onclick="showToast('请将 URL 文件放入 D:\\\\咸鱼爬取软件 目录后再运行')">导入 URL 文件</button>
-      <button class="btn btn-primary-soft" onclick="showToast('当前仅允许安全测试采集，不会启用真实生产')">运行测试采集</button>
-      <button class="btn btn-primary-soft" onclick="switchPage('readiness')">查看准备状态</button>
-      <button class="btn btn-primary-soft" onclick="exportReport()">导出报告</button>
+      <button class="btn btn-lg btn-primary" onclick="switchPage('new_task')">📋 新建采集任务</button>
+      <button class="btn btn-lg" onclick="switchPage('sources')">📂 导入 URL 文件</button>
+      <button class="btn btn-lg" onclick="switchPage('results')">📊 查看采集结果</button>
+    </div>
+
+    <div class="user-summary-grid">
+      <div class="user-card" onclick="switchPage('new_task')" style="cursor:pointer">
+        <div class="user-card-icon">📋</div>
+        <div class="user-card-title">新建任务</div>
+        <div class="user-card-desc">创建一个资料采集任务，设定名称、类型和来源。</div>
+      </div>
+      <div class="user-card" onclick="switchPage('sources')" style="cursor:pointer">
+        <div class="user-card-icon">📂</div>
+        <div class="user-card-title">资料来源</div>
+        <div class="user-card-desc">粘贴 URL、导入文件，或接入官方 API。</div>
+      </div>
+      <div class="user-card" onclick="switchPage('results')" style="cursor:pointer">
+        <div class="user-card-icon">📊</div>
+        <div class="user-card-title">采集结果</div>
+        <div class="user-card-desc">表格预览、字段清洗、去重、失败项重试。</div>
+      </div>
+      <div class="user-card" onclick="switchPage('export_page')" style="cursor:pointer">
+        <div class="user-card-icon">📥</div>
+        <div class="user-card-title">导出资料</div>
+        <div class="user-card-desc">导出为 Excel、CSV、JSON、Markdown 或 PDF。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>最近任务</h3>
+      <table class="data-table">
+        <thead><tr><th>任务名称</th><th>状态</th><th>条数</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr><td>书籍资料采集</td><td><span class="badge-green">✅ 已完成</span></td><td>86 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
+          <tr><td>电商测试采集</td><td><span class="badge-green">✅ 已完成</span></td><td>352 条</td><td>2026-06-14</td><td><a href="#" onclick="switchPage('results')" class="link">查看</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="footnote">ⓘ 请确保资料来源为公开授权页面。详细说明见"高级设置"。</p>
+  </section>
+
+  <!-- ── Page: New Task ── -->
+  <section class="page" id="page-new_task">
+    <h2>新建采集任务</h2>
+
+    <div class="card" style="max-width:640px">
+      <div class="form-group">
+        <label>任务名称</label>
+        <input type="text" class="form-input" id="task_name" placeholder="例如：商品资料采集_2026" value="资料采集_2026-06-14">
+      </div>
+      <div class="form-group">
+        <label>资料类型</label>
+        <select class="form-input" id="task_type">
+          <option>商品资料</option>
+          <option>文章资料</option>
+          <option>企业资料</option>
+          <option>网页资料</option>
+          <option>自定义资料</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>目标来源</label>
+        <select class="form-input" id="task_source">
+          <option>从 URL 文件导入</option>
+          <option>粘贴单个 URL</option>
+          <option>导入本地 HTML</option>
+          <option>导入 CSV / Excel / JSON</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>采集模式</label>
+        <div style="margin-top:6px">
+          <label style="margin-right:20px;cursor:pointer"><input type="radio" name="mode" value="test" checked> 安全测试（推荐）</label>
+          <label style="cursor:pointer;opacity:0.6"><input type="radio" name="mode" value="prod" disabled> 正式采集（需合规 URL + 准备状态评估）</label>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="switchPage('sources')" style="margin-top:12px">下一步：导入资料来源 →</button>
+    </div>
+  </section>
+
+  <!-- ── Page: Sources ── -->
+  <section class="page" id="page-sources">
+    <h2>资料来源</h2>
+
+    <div class="card" style="max-width:680px">
+      <div style="display:flex;gap:10px;margin-bottom:16px">
+        <button class="btn" onclick="showToast('请选择 URL 文件（每行一个网址）')">📁 导入 URL 文件</button>
+        <button class="btn" onclick="showToast('请在下方粘贴 URL')">📋 粘贴单个 URL</button>
+        <button class="btn" onclick="showToast('请选择本地 HTML 文件')">📄 导入本地 HTML</button>
+        <button class="btn" onclick="showToast('请选择 CSV / Excel / JSON 文件')">📊 导入表格文件</button>
+      </div>
+
+      <textarea class="form-input" rows="4" placeholder="在此粘贴 URL，每行一个...&#10;https://example.com/product/1&#10;https://example.com/product/2" style="font-family:monospace;font-size:13px"></textarea>
+
+      <div style="margin-top:12px;font-size:13px;color:var(--text-dim)">
+        已导入 <strong id="source_count">86</strong> 条来源
+      </div>
+
+      <table class="data-table" style="margin-top:10px;max-height:240px;display:block;overflow-y:auto">
+        <thead><tr><th>#</th><th>URL</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html</td><td><span class="badge-green">✅</span></td></tr>
+          <tr><td>2</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html</td><td><span class="badge-green">✅</span></td></tr>
+          <tr><td>3</td><td style="font-family:monospace;font-size:12px">https://books.toscrape.com/catalogue/soumission_998/index.html</td><td><span class="badge-green">✅</span></td></tr>
+        </tbody>
+      </table>
+
+      <button class="btn btn-primary" onclick="switchPage('fields')" style="margin-top:12px">下一步：选择字段 →</button>
+    </div>
+  </section>
+
+  <!-- ── Page: Fields ── -->
+  <section class="page" id="page-fields">
+    <h2>字段规则</h2>
+
+    <div class="card" style="max-width:680px">
+      <h3>选择要提取的字段</h3>
+      <div class="field-grid">
+        <label class="field-check"><input type="checkbox" checked> 标题</label>
+        <label class="field-check"><input type="checkbox" checked> 价格</label>
+        <label class="field-check"><input type="checkbox" checked> 描述</label>
+        <label class="field-check"><input type="checkbox" checked> 图片</label>
+        <label class="field-check"><input type="checkbox" checked> 链接</label>
+        <label class="field-check"><input type="checkbox" checked> 正文</label>
+        <label class="field-check"><input type="checkbox"> 发布时间</label>
+        <label class="field-check"><input type="checkbox"> 作者</label>
+        <label class="field-check"><input type="checkbox"> 分类</label>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>使用模板</label>
+        <select class="form-input" style="width:200px;display:inline;margin-left:8px">
+          <option>商品资料模板</option>
+          <option>文章资料模板</option>
+          <option>自定义字段</option>
+        </select>
+        <button class="btn btn-sm" style="margin-left:8px" onclick="showToast('模板已保存')">💾 保存模板</button>
+      </div>
+
+      <button class="btn btn-primary" onclick="switchPage('results')" style="margin-top:12px">开始采集 →</button>
+    </div>
+  </section>
+
+  <!-- ── Page: Results ── -->
+  <section class="page" id="page-results">
+    <h2>采集结果</h2>
+
+    <div class="card">
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <input type="text" class="form-input" placeholder="🔍 搜索..." style="width:200px">
+        <button class="btn btn-sm">筛选 ▾</button>
+        <button class="btn btn-sm" onclick="showToast('已去除重复数据')">去重</button>
+        <button class="btn btn-sm" onclick="showToast('正在重新采集失败项...')">🔄 重试失败项</button>
+      </div>
+
+      <table class="data-table">
+        <thead><tr><th>#</th><th>标题</th><th>价格</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>A Light in the Attic</td><td>£51.77</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
+          <tr><td>2</td><td>Tipping the Velvet</td><td>£53.74</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
+          <tr><td>3</td><td>Soumission</td><td>£50.10</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link" onclick="showToast('详情：采集时间 14:23，完整度 67%')">详情</a></td></tr>
+          <tr><td>4</td><td>Sharp Objects</td><td>£47.82</td><td><span class="badge-red">❌ 404</span></td><td><a href="#" class="link" onclick="showToast('失败原因：页面不存在 (HTTP 404)，已自动跳过')">重试</a></td></tr>
+          <tr><td>5</td><td>Sapiens</td><td>£54.23</td><td><span class="badge-green">✅</span></td><td><a href="#" class="link">详情</a></td></tr>
+        </tbody>
+      </table>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px">
+        <span><span class="badge-green">86 条成功</span> <span class="badge-red">0 条失败</span></span>
+        <span>
+          <button class="btn btn-sm btn-primary" onclick="switchPage('export_page')">📥 导出全部结果</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Page: Export ── -->
+  <section class="page" id="page-export_page">
+    <h2>导出报告</h2>
+
+    <div class="card" style="max-width:600px">
+      <h3>导出格式</h3>
+      <div class="action-row">
+        <button class="btn btn-lg" onclick="showToast('正在导出 Excel...')">📊 Excel (.xlsx)</button>
+        <button class="btn btn-lg" onclick="showToast('正在导出 CSV...')">📄 CSV</button>
+        <button class="btn btn-lg" onclick="exportReport()">📋 JSON</button>
+        <button class="btn btn-lg" onclick="showToast('正在导出 Markdown...')">📝 Markdown</button>
+        <button class="btn btn-lg" onclick="showToast('PDF 导出功能将在后续版本中实现')" style="opacity:0.6">📕 PDF</button>
+      </div>
+
+      <div class="form-group" style="margin-top:14px">
+        <label>导出范围</label>
+        <div style="margin-top:4px">
+          <label style="margin-right:20px;cursor:pointer"><input type="radio" name="export_scope" checked> 全部</label>
+          <label style="margin-right:20px;cursor:pointer"><input type="radio" name="export_scope"> 仅成功项</label>
+          <label style="cursor:pointer"><input type="radio" name="export_scope"> 仅失败项</label>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:10px">
+        <label>文件名</label>
+        <input type="text" class="form-input" value="资料导出_2026-06-14" style="width:280px">
+      </div>
+
+      <h3 style="margin-top:20px">最近导出</h3>
+      <table class="data-table">
+        <thead><tr><th>文件名</th><th>条数</th><th>格式</th></tr></thead>
+        <tbody>
+          <tr><td>资料导出_2026-06-14</td><td>86</td><td>.json</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Page: Readiness (高级设置) ── -->
+  <section class="page" id="page-readiness">
+    <h2>高级设置</h2>
+
+    <div class="card">
+      <table class="metric-table">
+        <tr><td>系统状态</td><td><span class="badge-blue">安全测试模式</span></td></tr>
+        <tr><td>准备状态*</td><td><span class="badge-green">READY</span> <span class="dim">*仅测试站点</span></td></tr>
+        <tr><td>真实生产</td><td><span class="badge-red">未启用</span></td></tr>
+        <tr><td>自动测试</td><td><span class="badge-green">529/529 通过</span></td></tr>
+        <tr><td>健康检查</td><td><span class="badge-green">15/15 通过</span></td></tr>
+      </table>
     </div>
 
     <details class="advanced-details">
-      <summary>展开高级详情（开发者信息）</summary>
+      <summary>展开合规检查</summary>
+      <div class="diagnostic-block">
+        <div class="security-checks">
+          <div class="check-row ok"><span>✓</span> 不绕过登录</div>
+          <div class="check-row ok"><span>✓</span> 不绕过验证码</div>
+          <div class="check-row ok"><span>✓</span> 不绕过访问控制</div>
+          <div class="check-row ok"><span>✓</span> 不绕过 403/401/429</div>
+          <div class="check-row ok"><span>✓</span> 不使用 Cookie/Token 绕过</div>
+          <div class="check-row ok"><span>✓</span> 不高频请求</div>
+          <div class="check-row ok"><span>✓</span> 不采集未授权资料</div>
+          <div class="check-row ok"><span>✓</span> AI Parser 不替代正式输出</div>
+        </div>
+      </div>
+    </details>
+
+    <details class="advanced-details">
+      <summary>展开 readiness 详情</summary>
+      <div class="diagnostic-block">
+        <table class="data-table">
+          <thead><tr><th>站点</th><th>样本</th><th>成功率</th><th>完整度</th><th>等级</th></tr></thead>
+          <tbody>
+            <tr><td>books.toscrape.com</td><td>352</td><td>100%</td><td>63.5%</td><td><span class="badge-green">READY</span></td></tr>
+            <tr><td>真实目标站点</td><td>0</td><td>—</td><td>—</td><td><span class="badge-red">未完成</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="advanced-details">
+      <summary>展开 canary sandbox</summary>
       <div class="diagnostic-block">
         <table class="metric-table">
-          <tr><td>技术状态</td><td>ACS_MODE=shadow</td></tr>
-          <tr><td>pytest</td><td><span class="badge-green">529/529</span></td></tr>
-          <tr><td>health_check</td><td><span class="badge-green">15/15</span></td></tr>
-          <tr><td>release_checklist</td><td><span class="badge-green">11/11</span></td></tr>
-          <tr><td>adapter</td><td><span class="badge-green">8/8</span></td></tr>
-          <tr><td>self-test</td><td><span class="badge-green">14/14</span></td></tr>
-          <tr><td>测试站点 readiness</td><td><span class="badge-green">READY</span></td></tr>
-          <tr><td>真实目标站点 readiness</td><td><span class="badge-red">未完成</span></td></tr>
-          <tr><td>真实生产 Phase 10</td><td><span class="badge-red">未进入</span></td></tr>
-          <tr><td>Sandbox Canary</td><td><span class="badge-blue">已完成</span></td></tr>
-        </table>
-
-        <div class="phase-bar" style="margin-top:16px">
-          <div class="phase done">Phase 1-8<span>完成</span></div>
-          <div class="phase done">Phase 9 框架<span>完成</span></div>
-          <div class="phase done">Phase 9 测试站点<span>READY</span></div>
-          <div class="phase current">Phase 9 真实站点<span>未完成</span></div>
-          <div class="phase done">Phase 10 Sandbox<span>完成</span></div>
-          <div class="phase blocked">真实 Phase 10<span>未进入</span></div>
-        </div>
-      </div>
-    </details>
-
-    <div class="security-checks" style="margin-top:16px">
-      <div class="check-row ok"><span>✓</span> 未启用 ACS_MODE=on</div>
-      <div class="check-row ok"><span>✓</span> 未执行真实 canary</div>
-      <div class="check-row ok"><span>✓</span> 无 API Key / Cookie / Token 泄露</div>
-    </div>
-  </section>
-
-  <!-- ── Page: Security (合规确认) ── -->
-  <section class="page" id="page-security">
-    <h2>第 2 步：合规确认</h2>
-
-    <div class="security-banner-new" style="margin-bottom:20px">
-      <span class="banner-icon">i</span>
-      系统只允许在公开、授权、无需登录、无需验证码、无需 Cookie/Token 的页面上进行测试采集。
-    </div>
-
-    <div class="card">
-      <h3>合规清单</h3>
-      <div class="security-list">
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>页面公开可访问</strong><br>目标页面无需登录即可在浏览器中打开查看。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>用户有权访问</strong><br>仅采集你拥有合法访问权限的页面。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不需要登录</strong><br>不通过任何账号体系绕过访问限制。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不需要验证码</strong><br>不破解、不绕过任何人机验证。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不需要 Cookie / Token</strong><br>不使用认证凭据模拟登录态。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不绕过访问控制</strong><br>遵守目标站点的 robots.txt 和访问规则。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不规避反爬机制</strong><br>不使用代理池、伪造 UA、JS 逆向等手段。</div>
-        </div>
-        <div class="security-item compliant">
-          <span>✓</span>
-          <div><strong>不高频请求</strong><br>每次请求间隔 ≥2 秒，不干扰目标站点正常运行。</div>
-        </div>
-      </div>
-    </div>
-
-    <details class="advanced-details">
-      <summary>展开安全边界说明</summary>
-      <div class="diagnostic-block">
-        <div class="security-list">
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不启用 ACS_MODE=on</strong><br>始终保持安全测试模式。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不对真实商业平台执行 canary</strong><br>Amazon/Walmart/BestBuy/HomeDepot 等平台已确认 403 拦截。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不绕过 403/401/429</strong><br>反爬、认证、限流均不可绕过。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不采集未授权内容</strong><br>仅限公开或用户有权访问的页面。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不输出 API Key/Cookie/Token</strong><br>日志、报告、页面均不得包含。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不让 Self-Healing 自动覆盖规则</strong><br>自动应用始终保持关闭。</div>
-          </div>
-          <div class="security-item forbidden">
-            <span class="sec-icon">⊘</span>
-            <div><strong>不让 AI Parser 替代旧流程</strong><br>旧流程仍是唯一正式输出。</div>
-          </div>
-        </div>
-      </div>
-    </details>
-
-    <div class="card" style="margin-top:16px">
-      <h3>当前安全确认</h3>
-      <div class="security-checks">
-        <div class="check-row ok"><span>✓</span> 安全测试模式运行中</div>
-        <div class="check-row ok"><span>✓</span> 真实生产未启用</div>
-        <div class="check-row ok"><span>✓</span> 隔离沙盒环境中</div>
-        <div class="check-row ok"><span>✓</span> 人工审批未跳过</div>
-        <div class="check-row ok"><span>✓</span> 无 API Key 泄露</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Page: Canary Sandbox (模拟测试) ── -->
-  <section class="page" id="page-canary">
-    <h2>第 3 步：模拟测试</h2>
-
-    <div class="card-grid">
-      <div class="card card-metric">
-        <div class="metric-label">小范围模拟测试</div>
-        <div class="metric-value"><span class="badge-blue">已完成</span></div>
-        <div class="metric-sub">仅限测试站点，不含真实平台</div>
-      </div>
-      <div class="card card-metric">
-        <div class="metric-label">恢复安全模式</div>
-        <div class="metric-value"><span class="badge-green">已验证</span></div>
-        <div class="metric-sub">可一键恢复到安全测试模式</div>
-      </div>
-      <div class="card card-metric">
-        <div class="metric-label">运行监控</div>
-        <div class="metric-value"><span class="badge-green">正常</span></div>
-        <div class="metric-sub">异常自动恢复</div>
-      </div>
-      <div class="card card-metric">
-        <div class="metric-label">真实生产</div>
-        <div class="metric-value"><span class="badge-red">未启用</span></div>
-        <div class="metric-sub">需人工审批 + 合规 URL</div>
-      </div>
-    </div>
-
-    <details class="advanced-details">
-      <summary>展开模拟测试详情</summary>
-      <div class="diagnostic-block">
-        <div class="card">
-          <h3>测试参数（小范围模拟）</h3>
-          <table class="metric-table">
-            <tr><td>测试比例</td><td>5%</td></tr>
-            <tr><td>持续时长</td><td>24 小时</td></tr>
-            <tr><td>错误率回滚阈值</td><td>>5%</td></tr>
-            <tr><td>完整度回滚阈值</td><td>>20%</td></tr>
-            <tr><td>成本回滚阈值</td><td>达到上限时</td></tr>
-            <tr><td>需要人工确认</td><td><span class="badge-red">是</span></td></tr>
-            <tr><td>仅测试站点</td><td><span class="badge-blue">是</span></td></tr>
-          </table>
-        </div>
-
-        <div class="card" style="margin-top:14px">
-          <h3>模拟测试记录</h3>
-          <table class="data-table">
-            <thead><tr><th>记录编号</th><th>测试站点</th><th>状态</th><th>时间</th></tr></thead>
-            <tbody>
-              <tr><td>sandbox_001</td><td>books.toscrape.com</td><td><span class="badge-green">已完成</span></td><td>2026-06-14</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="card" style="margin-top:14px">
-          <h3>恢复记录</h3>
-          <table class="data-table">
-            <thead><tr><th>报告</th><th>测试站点</th><th>原因</th><th>时间</th></tr></thead>
-            <tbody>
-              <tr><td>rollback_20260614</td><td>测试电商站点</td><td>沙盒演练完成</td><td>2026-06-14</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- ── Page: Readiness (诊断) ── -->
-  <section class="page" id="page-readiness">
-    <h2>[诊断] 环境就绪度</h2>
-
-    <div class="security-banner-new" style="margin-bottom:20px">
-      <span class="banner-icon">i</span>
-      这里是开发者诊断信息。普通用户只需查看"运行总览"和"合规确认"。
-    </div>
-
-    <div class="card">
-      <h3>books.toscrape.com · 测试站点状态</h3>
-      <div class="readiness-level badge-green large">READY</div>
-      <table class="metric-table">
-        <tr><td>样本数</td><td><strong>352</strong> <span class="dim">(≥100 ✅)</span></td></tr>
-        <tr><td>成功率</td><td><strong>100%</strong> <span class="dim">(≥85% ✅)</span></td></tr>
-        <tr><td>平均完整度</td><td><strong>63.5%</strong> <span class="dim">(≥60% ✅)</span></td></tr>
-        <tr><td>严重错误率</td><td><strong>0%</strong> <span class="dim">(≤5% ✅)</span></td></tr>
-        <tr><td>API Key 泄露</td><td><strong>0</strong> <span class="dim">✅</span></td></tr>
-        <tr><td>旧流程影响</td><td><strong>0</strong> <span class="dim">✅</span></td></tr>
-        <tr><td>就绪评分</td><td><strong>0.9044</strong></td></tr>
-      </table>
-    </div>
-
-    <div class="card">
-      <h3>真实目标站点状态</h3>
-      <div class="readiness-level badge-red large">未完成</div>
-      <table class="metric-table">
-        <tr><td>样本数</td><td><strong>0</strong></td></tr>
-        <tr><td>说明</td><td>需单一域名 ≥100 条合规 HTML 产品详情页</td></tr>
-      </table>
-    </div>
-
-    <details class="advanced-details">
-      <summary>展开全局数据分布</summary>
-      <div class="diagnostic-block">
-        <p style="font-size:12px;color:var(--text-dim);margin-bottom:10px">全局 mixed 评估仅作参考，不作为单域准入依据。</p>
-        <table class="data-table">
-          <thead><tr><th>页面类型</th><th>数量</th><th>完整度</th></tr></thead>
-          <tbody>
-            <tr><td>html_product_detail_page</td><td>440</td><td>58.9%</td></tr>
-            <tr><td>html_generic_page</td><td>216</td><td>32.3%</td></tr>
-            <tr><td>json_api</td><td>136</td><td>31.2%</td></tr>
-            <tr><td>html_product_list_page</td><td>41</td><td>53.4%</td></tr>
-            <tr><td>other</td><td>16</td><td>—</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </details>
-  </section>
-
-  <!-- ── Page: Release (诊断) ── -->
-  <section class="page" id="page-release">
-    <h2>[诊断] 发布阻塞项</h2>
-
-    <div class="security-banner-new" style="margin-bottom:20px">
-      <span class="banner-icon">i</span>
-      这里是开发者诊断信息。当前版本可作为沙盒发布版使用，真实生产模式仍未启用。
-    </div>
-
-    <div class="card-grid">
-      <div class="card card-metric">
-        <div class="metric-label">当前可作为</div>
-        <div class="metric-value"><span class="badge-green">沙盒发布版</span></div>
-        <div class="metric-sub">机制验证通过，测试站点 READY</div>
-      </div>
-      <div class="card card-metric">
-        <div class="metric-label">不可作为</div>
-        <div class="metric-value"><span class="badge-red">真实生产版</span></div>
-        <div class="metric-sub">真实目标站点 readiness 未完成</div>
-      </div>
-    </div>
-
-    <details class="advanced-details">
-      <summary>展开详细阻塞项</summary>
-      <div class="diagnostic-block">
-        <table class="data-table">
-          <thead><tr><th>阻塞项</th><th>状态</th><th>说明</th></tr></thead>
-          <tbody>
-            <tr><td>真实目标站点采样</td><td><span class="badge-red">未满足</span></td><td>需单一域名 ≥100 条合规 HTML 产品详情页</td></tr>
-            <tr><td>商业平台反爬边界</td><td><span class="badge-red">已确认</span></td><td>Amazon/Walmart/BestBuy/HD 等 403 拦截</td></tr>
-            <tr><td>代码完整性</td><td><span class="badge-green">通过</span></td><td>529/529 自动测试</td></tr>
-            <tr><td>健康检查</td><td><span class="badge-green">通过</span></td><td>15/15</td></tr>
-            <tr><td>发布检查</td><td><span class="badge-green">通过</span></td><td>11/11</td></tr>
-            <tr><td>沙盒机制</td><td><span class="badge-green">通过</span></td><td>模拟测试/恢复/监控 全部验证通过</td></tr>
-          </tbody>
+          <tr><td>Canary</td><td><span class="badge-blue">沙盒已完成</span></td></tr>
+          <tr><td>Rollback</td><td><span class="badge-green">已验证</span></td></tr>
+          <tr><td>真实生产 Canary</td><td><span class="badge-red">未执行</span></td></tr>
         </table>
       </div>
     </details>
 
-    <div class="card" style="margin-top:16px">
-      <h3>下一步</h3>
-      <div class="next-step">等待合规真实业务目标站点提供 ≥100 条公开 HTML 产品详情页 URL，通过准备状态评估后可进入真实生产。</div>
-      <div class="next-step dim">或切换至 JSON API 独立准入体系（不套用 HTML 产品页规则）。</div>
+    <div class="card" style="margin-top:14px">
+      <h3>关于</h3>
+      <p style="font-size:13px;color:var(--text-dim)">ACS v1.0.0-sandbox · 安全测试模式 · 真实生产未启用</p>
     </div>
   </section>
 </main>
