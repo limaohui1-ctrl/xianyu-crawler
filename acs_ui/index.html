@@ -115,42 +115,102 @@
   <section class="page" id="page-discovery">
     <h2>🧠 智能找资料</h2>
 
-    <div class="card" style="max-width:680px">
+    <div class="card" style="max-width:720px">
       <div class="form-group">
-        <label>资料主题</label>
-        <input type="text" class="form-input" placeholder="例如：园区废气治理案例、半导体行业趋势...">
-      </div>
-      <div class="form-group">
-        <label>关键词（逗号分隔）</label>
-        <input type="text" class="form-input" placeholder="例如：VOCs, 活性炭, 废气治理, 整改报告">
-      </div>
-      <div class="form-group" style="display:flex;gap:14px">
-        <div style="flex:1">
-          <label>资料类型</label>
-          <select class="form-input">
-            <option>网页资料</option><option>文章资料</option><option>政策资料</option>
-            <option>企业资料</option><option>商品资料</option><option>PDF 文档</option>
-            <option>表格资料</option><option>图片资料</option><option>自定义资料</option>
-          </select>
-        </div>
-        <div style="flex:1">
-          <label>预计数量</label>
-          <select class="form-input"><option>10 条</option><option>20 条</option><option selected>50 条</option><option>100 条</option></select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>语言</label>
-        <select class="form-input" style="width:200px">
-          <option>中文</option><option>英文</option><option>不限定</option>
+        <label>资料发现方式</label>
+        <select class="form-input" id="provider_select" onchange="onProviderChange()" style="width:260px">
+          <option value="mock">Mock 演示数据</option>
+          <option value="import-file">导入搜索结果文件</option>
+          <option value="sitemap">Sitemap</option>
+          <option value="rss">RSS / Atom</option>
         </select>
+        <div id="provider_desc" style="margin-top:4px;font-size:12px;color:var(--text-dim)">使用内置演示数据测试发现流程。</div>
       </div>
-      <div class="form-group">
+
+      <!-- Mock inputs -->
+      <div id="inputs_mock">
+        <div class="form-group">
+          <label>资料主题</label>
+          <input type="text" class="form-input" id="topic_mock" placeholder="例如：园区废气治理案例、半导体行业趋势...">
+        </div>
+        <div class="form-group">
+          <label>关键词（逗号分隔）</label>
+          <input type="text" class="form-input" id="keywords_mock" placeholder="例如：VOCs, 活性炭, 废气治理, 整改报告">
+        </div>
+        <div class="form-group" style="display:flex;gap:14px">
+          <div style="flex:1">
+            <label>资料类型</label>
+            <select class="form-input"><option>网页资料</option><option>文章资料</option><option>政策资料</option><option>企业资料</option><option>商品资料</option><option>PDF 文档</option></select>
+          </div>
+          <div style="flex:1">
+            <label>预计数量</label>
+            <select class="form-input"><option>10 条</option><option>20 条</option><option selected>20 条</option><option>50 条</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import-file inputs -->
+      <div id="inputs_import" style="display:none">
+        <div class="form-group">
+          <label>文件路径</label>
+          <input type="text" class="form-input" id="import_path" placeholder="D:\数据\search_results.csv 或 .txt / .json / .md">
+        </div>
+        <div class="form-group">
+          <label>资料主题（可选）</label>
+          <input type="text" class="form-input" id="topic_import" placeholder="例如：园区废气治理案例">
+        </div>
+        <div class="form-group">
+          <label>关键词（逗号分隔，可选）</label>
+          <input type="text" class="form-input" id="keywords_import" placeholder="例如：VOCs, 活性炭">
+        </div>
+        <p style="font-size:12px;color:var(--text-dim)">支持 CSV（含 url 列）、JSON 数组、TXT（每行一个 URL）、Markdown 文件。</p>
+      </div>
+
+      <!-- Sitemap inputs -->
+      <div id="inputs_sitemap" style="display:none">
+        <div class="form-group">
+          <label>Sitemap 地址</label>
+          <input type="text" class="form-input" id="sitemap_url" placeholder="https://example.com/sitemap.xml">
+        </div>
+        <div class="form-group">
+          <label>资料主题（可选）</label>
+          <input type="text" class="form-input" id="topic_sm" placeholder="例如：园区废气治理案例">
+        </div>
+        <div class="form-group">
+          <label>关键词（逗号分隔，可选）</label>
+          <input type="text" class="form-input" id="keywords_sm" placeholder="例如：VOCs, 活性炭">
+        </div>
+        <p style="font-size:12px;color:var(--text-dim)">仅读取公开 sitemap。不绕过登录或访问控制。支持 sitemap index 递归。</p>
+      </div>
+
+      <!-- RSS inputs -->
+      <div id="inputs_rss" style="display:none">
+        <div class="form-group">
+          <label>Feed 地址</label>
+          <input type="text" class="form-input" id="feed_url" placeholder="https://example.com/feed.xml 或 /rss">
+        </div>
+        <div class="form-group">
+          <label>资料主题（可选）</label>
+          <input type="text" class="form-input" id="topic_rss" placeholder="例如：园区废气治理案例">
+        </div>
+        <div class="form-group">
+          <label>关键词（逗号分隔，可选）</label>
+          <input type="text" class="form-input" id="keywords_rss" placeholder="例如：VOCs, 活性炭">
+        </div>
+        <p style="font-size:12px;color:var(--text-dim)">支持 RSS 2.0 和 Atom 格式。仅读取公开 feed。</p>
+      </div>
+
+      <div class="form-group" style="margin-top:8px">
         <label style="cursor:pointer;font-weight:400">
-          <input type="checkbox" checked style="margin-right:6px"> 排除商业平台（Amazon/Walmart/BestBuy 等，已知存在访问限制）
+          <input type="checkbox" id="exclude_commercial" checked style="margin-right:6px"> 排除商业平台（Amazon/Walmart/BestBuy 等，已知存在访问限制）
         </label>
       </div>
-      <button class="btn btn-primary btn-lg" onclick="switchPage('candidates')" style="margin-top:8px">🔍 开始搜索</button>
-      <p class="footnote" style="margin-top:10px">ⓘ 系统将通过公开、合规渠道发现候选来源。不会绕过登录、验证码或访问控制。</p>
+
+      <button class="btn btn-primary btn-lg" onclick="runDiscovery()" style="margin-top:8px">🔍 开始找资料</button>
+
+      <div id="discovery_cmd" style="display:none;margin-top:14px;padding:12px;background:var(--bg);border-radius:6px;font-family:monospace;font-size:12px"></div>
+
+      <p class="footnote" style="margin-top:10px">ⓘ 所有候选来源均经过安全检查和合规过滤。blocked 来源不会被采集。</p>
     </div>
   </section>
 
@@ -159,32 +219,37 @@
     <h2>候选来源确认</h2>
 
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <span>搜索结果：<strong>32</strong> 条</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <span>搜索结果：<strong id="candidate_total">6</strong> 条 <span style="font-size:12px;color:var(--text-dim)" id="provider_label">(Mock 演示)</span></span>
         <span>
-          <button class="btn btn-sm" onclick="showToast('已全选可采集条目')">全选可采集</button>
-          <button class="btn btn-sm btn-primary" onclick="switchPage('new_task');showToast('已加入 18 条候选来源到采集任务')">加入采集任务 →</button>
+          <button class="btn btn-sm" onclick="selectAllAllowed()">全选可采集</button>
+          <button class="btn btn-sm btn-primary" onclick="addToTask()">加入采集任务 →</button>
         </span>
       </div>
 
       <table class="data-table">
-        <thead><tr><th>☑</th><th>标题</th><th>来源网站</th><th>相关度</th><th>风险</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr><td><input type="checkbox" checked></td><td>园区VOCs治理典型案例分析</td><td>epb.gov.cn</td><td><span class="badge-green">92%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link" onclick="showToast('预览：园区VOCs治理典型案例...')">预览</a></td></tr>
-          <tr><td><input type="checkbox" checked></td><td>活性炭吸附技术在废气治理中的应用指南</td><td>mee.gov.cn</td><td><span class="badge-green">88%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link">预览</a></td></tr>
-          <tr><td><input type="checkbox" checked></td><td>挥发性有机物治理整改报告汇编</td><td>zhbb.gov.cn</td><td><span class="badge-green">85%</span></td><td><span class="badge-green">低</span></td><td><a href="#" class="link">预览</a></td></tr>
-          <tr><td><input type="checkbox"></td><td>XXX环保设备供应商产品目录</td><td>example.com</td><td><span class="badge-yellow">71%</span></td><td><span class="badge-yellow">中</span></td><td><a href="#" class="link">预览</a></td></tr>
-          <tr><td><input type="checkbox"></td><td>XXX公司VOCs治理方案.pdf</td><td>xxx.co</td><td><span class="badge-yellow">65%</span></td><td><span class="badge-red">高</span></td><td><a href="#" class="link">预览</a></td></tr>
-          <tr><td>✕</td><td style="opacity:0.5">付费资料平台 - VOCs治理专题</td><td style="opacity:0.5">paywall.cn</td><td><span class="badge-red">40%</span></td><td><span class="badge-red">禁止</span></td><td><span class="dim">需要登录</span></td></tr>
+        <thead><tr><th>☑</th><th>标题</th><th>URL</th><th>来源</th><th>相关度</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="candidate_tbody">
+          <tr><td><input type="checkbox" checked></td><td>园区VOCs治理典型案例分析</td><td style="font-family:monospace;font-size:11px">epb.gov.cn/...</td><td>epb.gov.cn</td><td><span class="badge-green">92%</span></td><td><span class="badge-green">可采集</span></td><td><a href="#" class="link" onclick="showToast('完整度 67%，采集时间 14:23')">详情</a></td></tr>
+          <tr><td><input type="checkbox" checked></td><td>活性炭吸附技术在废气治理中的应用指南</td><td style="font-family:monospace;font-size:11px">mee.gov.cn/...</td><td>mee.gov.cn</td><td><span class="badge-green">88%</span></td><td><span class="badge-green">可采集</span></td><td><a href="#" class="link">详情</a></td></tr>
+          <tr><td><input type="checkbox" checked></td><td>挥发性有机物治理整改报告汇编</td><td style="font-family:monospace;font-size:11px">zhbb.gov.cn/...</td><td>zhbb.gov.cn</td><td><span class="badge-green">85%</span></td><td><span class="badge-green">可采集</span></td><td><a href="#" class="link">详情</a></td></tr>
+          <tr><td><input type="checkbox"></td><td>XXX环保设备供应商产品目录</td><td style="font-family:monospace;font-size:11px">example.com/...</td><td>example.com</td><td><span class="badge-yellow">71%</span></td><td><span class="badge-yellow">需确认</span></td><td><a href="#" class="link">预览</a></td></tr>
+          <tr><td><input type="checkbox"></td><td>XXX公司VOCs治理方案.pdf</td><td style="font-family:monospace;font-size:11px">xxx.co/...</td><td>xxx.co</td><td><span class="badge-yellow">65%</span></td><td><span class="badge-red">高风险</span></td><td><span class="dim">商业域名</span></td></tr>
+          <tr><td><span style="color:var(--red)">✕</span></td><td style="opacity:0.45">付费资料平台 - VOCs治理专题</td><td style="font-family:monospace;font-size:11px;opacity:0.45">paywall.cn/...</td><td style="opacity:0.45">paywall.cn</td><td><span class="badge-red">40%</span></td><td><span class="badge-red">禁止采集</span></td><td><span class="dim">付费墙</span></td></tr>
         </tbody>
       </table>
 
-      <div style="margin-top:12px;font-size:13px">
-        已选 <strong id="selected_count">18</strong> 条 |
-        <span class="badge-green">可采集 28</span>
-        <span class="badge-yellow">需确认 3</span>
-        <span class="badge-red">禁止 1</span>
+      <div style="margin-top:12px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span>
+          已选 <strong id="sel_count">3</strong> 条 |
+          <span class="badge-green">可采集 <span id="allowed_n">3</span></span>
+          <span class="badge-yellow">需确认 <span id="review_n">2</span></span>
+          <span class="badge-red">禁止 <span id="blocked_n">1</span></span>
+        </span>
+        <span style="font-size:12px;color:var(--text-dim)">ⓘ 禁止采集的条目不可勾选，不会进入采集任务。</span>
       </div>
+
+      <div id="task_cmd_box" style="display:none;margin-top:14px;padding:12px;background:var(--bg);border-radius:6px;font-family:monospace;font-size:12px"></div>
     </div>
   </section>
 
