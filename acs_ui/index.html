@@ -130,6 +130,7 @@
           <option value="import-file">导入搜索结果文件</option>
           <option value="sitemap">Sitemap</option>
           <option value="rss">RSS / Atom</option>
+          <option value="auto-domain">自动发现网站资料</option>
         </select>
         <div id="provider_desc" style="margin-top:4px;font-size:12px;color:var(--text-dim)">使用内置演示数据测试发现流程。</div>
       </div>
@@ -205,6 +206,29 @@
           <input type="text" class="form-input" id="keywords_rss" placeholder="例如：VOCs, 活性炭">
         </div>
         <p style="font-size:12px;color:var(--text-dim)">支持 RSS 2.0 和 Atom 格式。仅读取公开 feed。</p>
+      </div>
+
+      <!-- auto-domain inputs -->
+      <div id="inputs_auto_domain" style="display:none">
+        <div class="form-group">
+          <label>网站地址 / 域名</label>
+          <input type="text" class="form-input" id="domain_url" placeholder="例如：example.gov.cn 或 https://example.gov.cn">
+        </div>
+        <div class="form-group">
+          <label>资料主题（可选）</label>
+          <input type="text" class="form-input" id="topic_ad" placeholder="例如：园区废气治理案例">
+        </div>
+        <div class="form-group">
+          <label>关键词（可选）</label>
+          <input type="text" class="form-input" id="keywords_ad" placeholder="例如：VOCs, 活性炭">
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:13px">
+          <label style="cursor:pointer"><input type="checkbox" id="ad_robots" checked> robots.txt</label>
+          <label style="cursor:pointer"><input type="checkbox" id="ad_sitemap" checked> 自动发现 sitemap</label>
+          <label style="cursor:pointer"><input type="checkbox" id="ad_rss" checked> 自动发现 RSS</label>
+          <label style="cursor:pointer"><input type="checkbox" id="ad_entry" checked> 探测常见入口</label>
+        </div>
+        <p style="font-size:12px;color:var(--text-dim);margin-top:6px">输入域名后，系统会自动发现 robots.txt / sitemap / RSS / 常见资料入口，生成候选 URL。</p>
       </div>
 
       <div class="form-group" style="margin-top:8px">

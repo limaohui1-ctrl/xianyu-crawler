@@ -54,9 +54,9 @@
   // ── Provider Change ──
   window.onProviderChange = function(){
     var p = document.getElementById('provider_select').value;
-    var descs = {'mock':'使用内置演示数据测试发现流程。','import-file':'从 CSV/JSON/TXT/Markdown 文件导入 URL 列表。','sitemap':'从公开 sitemap.xml 自动发现所有页面 URL。','rss':'从公开 RSS/Atom feed 提取文章链接。'};
+    var descs = {'mock':'使用内置演示数据测试发现流程。','import-file':'从 CSV/JSON/TXT/Markdown 文件导入 URL 列表。','sitemap':'从公开 sitemap.xml 自动发现所有页面 URL。','rss':'从公开 RSS/Atom feed 提取文章链接。','auto-domain':'输入域名，自动发现 robots.txt、sitemap、RSS 和常见资料入口。'};
     document.getElementById('provider_desc').textContent = descs[p] || '';
-    ['mock','import','sitemap','rss'].forEach(function(k){
+    ['mock','import','sitemap','rss','auto_domain'].forEach(function(k){
       var el = document.getElementById('inputs_'+k);
       if(el) el.style.display = (k === p) ? '' : 'none';
     });
@@ -96,6 +96,10 @@
       pathOrUrl = document.getElementById('feed_url').value;
       topic = document.getElementById('topic_rss').value || '';
       keywords = document.getElementById('keywords_rss').value || '';
+    } else if(p === 'auto-domain'){
+      pathOrUrl = document.getElementById('domain_url').value;
+      topic = document.getElementById('topic_ad').value || '';
+      keywords = document.getElementById('keywords_ad').value || '';
     }
     return {provider: p, topic: topic, keywords: keywords, pathOrUrl: pathOrUrl};
   }
@@ -105,10 +109,17 @@
   window.runDiscovery = function(){
     var inp = getProviderInput();
     var kws = inp.keywords.split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
-    var body = { provider: inp.provider, topic: inp.topic, keywords: kws, limit: 20 };
+    var body = { provider: inp.provider, topic: inp.topic, keywords: kws, limit: 50 };
     if(inp.provider === 'import-file') body.input_path = inp.pathOrUrl;
     if(inp.provider === 'sitemap') body.sitemap_url = inp.pathOrUrl;
     if(inp.provider === 'rss') body.feed_url = inp.pathOrUrl;
+    if(inp.provider === 'auto-domain') {
+      body.domain_url = inp.pathOrUrl;
+      body.enable_robots = document.getElementById('ad_robots').checked;
+      body.enable_sitemap = document.getElementById('ad_sitemap').checked;
+      body.enable_rss = document.getElementById('ad_rss').checked;
+      body.enable_entry = document.getElementById('ad_entry').checked;
+    }
 
     showToast('正在发现候选来源...');
 

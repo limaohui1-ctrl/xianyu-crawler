@@ -80,8 +80,66 @@ def discovery_run():
         extra["feed_url"] = feed_url
         if not feed_url:
             return jsonify({"error": "feed_url required"}), 400
+    elif provider == "auto-domain":
+        domain_url = data.get("domain_url", "")
+        if not domain_url:
+            return jsonify({"error": "domain_url required for auto-domain provider"}), 400
+        extra["domain_url"] = domain_url
+        extra["enable_robots"] = data.get("enable_robots", True)
+        extra["enable_sitemap"] = data.get("enable_sitemap", True)
+        extra["enable_rss"] = data.get("enable_rss", True)
+        extra["enable_entry"] = data.get("enable_entry", True)
 
     try:
+        if provider == "auto-domain":
+            from acs.discovery.domain_profile import discover_domain
+            from acs.discovery.compliance_filter import ComplianceFilter
+            from acs.discovery.relevance_ranker import RelevanceRanker
+            from acs.discovery.candidate_url import CandidateUrl
+            from acs.discovery.url_normalizer import dedup_urls
+            profile = discover_domain(
+                domain_url,
+                topic=topic,
+                max_candidates=limit,
+                enable_robots=extra.get("enable_robots", True),
+                enable_sitemap=extra.get("enable_sitemap", True),
+                enable_rss=extra.get("enable_rss", True),
+                enable_site_entry=extra.get("enable_entry", True),
+            )
+            if profile.error:
+                return jsonify({"error": profile.error}), 400
+
+            # Apply compliance + relevance
+            cf = ComplianceFilter()
+            rr = RelevanceRanker()
+            all_cands = profile.robots_candidates + profile.sitemap_candidates + profile.feed_candidates + profile.site_entries
+            for c in all_cands:
+                obj = CandidateUrl.from_dict(c)
+                cf.evaluate(obj)
+                c.update(obj.to_dict())
+            all_cands = rr.rank(all_cands, topic, keywords)
+            all_cands = dedup_urls(all_cands, url_key="url")
+
+            allowed = sum(1 for c in all_cands if c.get("compliance_status") == "allowed")
+            review = sum(1 for c in all_cands if c.get("compliance_status") == "needs_review")
+            blocked = sum(1 for c in all_cands if c.get("compliance_status") == "blocked")
+
+            batch_id = f"ad_{profile.domain}_{int(time.time())}"
+            return jsonify({
+                "batch_id": batch_id,
+                "total_candidates": len(all_cands),
+                "allowed_count": allowed,
+                "needs_review_count": review,
+                "blocked_count": blocked,
+                "candidates": all_cands,
+                "domain": profile.domain,
+                "robots_sitemaps": profile.robots_sitemaps,
+                "sitemaps_found": len(profile.sitemap_urls_discovered),
+                "feeds_found": len(profile.feed_urls_discovered),
+                "entries_found": len(profile.site_entries),
+                "query": {"topic": topic, "keywords": keywords, "provider": "auto-domain", "domain": profile.domain},
+            })
+
         result = sd.discover(
             topic=topic, keywords=keywords,
             provider=provider, limit=limit,

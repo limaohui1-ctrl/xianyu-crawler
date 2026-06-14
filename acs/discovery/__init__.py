@@ -13,3 +13,11 @@ from .discovery_report import DiscoveryReport
 from .url_safety_checker import UrlSafetyChecker
 from .provider_registry import ProviderRegistry, get_registry, register, search
 from .discovery_config import DiscoveryConfig, get_config
+from .domain_input import DomainInput, parse_domain
+from .robots_provider import RobotsProvider
+from .sitemap_auto_discovery import SitemapAutoDiscovery
+from .rss_auto_discovery import RssAutoDiscovery
+from .site_entry_discovery import SiteEntryDiscovery
+from .url_normalizer import normalize_url, dedup_urls
+from .domain_profile import DomainProfile, discover_domain
+from .discovery_plus_report import DiscoveryPlusReport
