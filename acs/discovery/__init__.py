@@ -29,3 +29,9 @@ from .source_quality_scorer import score_source_quality
 from .candidate_deduplicator import dedup_candidates
 from .topic_candidate_ranker import rank_topic_candidates
 from .topic_discovery_flow import discover_by_topic, TopicDiscoveryReport
+from .search_api_secret_guard import mask_key, safe_headers, sanitize_error, redact_headers
+from .search_api_quota import SearchApiQuota
+from .search_api_clients import (
+    BingSearchClient, NoopSearchClient, create_search_client, BaseSearchClient,
+)
+from .search_api_provider_registry import SearchApiRegistry, get_search_registry

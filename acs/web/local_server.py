@@ -145,12 +145,15 @@ def discovery_run():
 
         if provider == "topic-search":
             from acs.discovery.topic_discovery_flow import discover_by_topic
+            from acs.discovery.search_api_provider_registry import get_search_registry
+
+            reg = get_search_registry()
             report = discover_by_topic(
                 topic=topic,
                 keywords=keywords,
                 content_type=extra.get("content_type", ""),
                 limit=limit,
-                provider="mock",
+                provider="auto",  # auto-detect: real API if configured, else mock
                 prefer_gov_edu=extra.get("prefer_gov_edu", True),
             )
             return jsonify({
@@ -163,6 +166,7 @@ def discovery_run():
                 "queries_generated": report.queries_generated,
                 "raw_results": report.raw_results,
                 "after_dedup": report.after_dedup,
+                "api_status": reg.status(),
                 "query": {"topic": topic, "keywords": keywords, "provider": "topic-search"},
             })
 

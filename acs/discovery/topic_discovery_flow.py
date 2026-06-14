@@ -23,6 +23,7 @@ from .topic_candidate_ranker import rank_topic_candidates
 from .source_quality_scorer import score_source_quality
 from .compliance_filter import ComplianceFilter
 from .url_safety_checker import UrlSafetyChecker
+from .search_api_provider_registry import get_search_registry
 
 
 @dataclass
@@ -99,17 +100,21 @@ def discover_by_topic(
     if not queries:
         return TopicDiscoveryReport(batch_id=batch_id, topic=topic, keywords=keywords)
 
-    # 2. Search API
-    if provider == "mock":
+    # 2. Search API — auto-detect real API if available
+    # Priority: explicit 'auto' > ACS_SEARCH_API_PROVIDER env > 'mock'
+    registry = get_search_registry()
+    api_source = "mock"
+
+    if provider == "mock" or not registry.is_real_configured:
         api = MockSearchApiProvider()
     else:
-        cfg = get_search_api_config(provider)
-        if not cfg.enabled:
-            return TopicDiscoveryReport(
-                batch_id=batch_id, topic=topic, keywords=keywords,
-                candidates=[{"error": cfg.message}],
-            )
-        api = SearchApiProvider(config=cfg)
+        client = registry.get_client(provider)
+        if client.available:
+            api = client
+            api_source = registry.active_provider
+        else:
+            api = MockSearchApiProvider()
+            api_source = f"mock (API unavailable: {client.last_error})"
 
     # Collect results per query
     all_results = []
