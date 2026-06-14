@@ -30,11 +30,13 @@ def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
         body = str(entry.get("legacy_body", "")).lower()
         if body and ("unauthorized" in body[:500] or "access denied" in body[:500]):
             return "auth_required"
-    # JSON API endpoints
+    # JSON API endpoints (also catch known JSON-only sites)
     api_indicators = ["/api/", "/v1/", "/v2/", "/v3/", "/v4/", ".json",
                       "api.", "graphql", "/rest/", "/graphql"]
-    if any(x in u for x in api_indicators) and "jsonplaceholder" not in u:
-        return "json_api"
+    json_only_sites = ["dummyjson.com"]
+    if any(x in u for x in api_indicators) or any(s in u for s in json_only_sites):
+        if "jsonplaceholder" not in u:
+            return "json_api"
     # CSV/XML
     if u.endswith(".csv"): return "csv_dataset"
     if u.endswith((".xml", ".rss", ".atom")): return "xml_feed"

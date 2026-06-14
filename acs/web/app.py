@@ -264,15 +264,26 @@ def evaluation_content():
     cp = "<p>Canary plan generated. See <code>acs/evaluation/canary_plan.py</code>.</p>"
     rp = "<p>Rollback plan generated. See <code>acs/evaluation/rollback_plan.py</code>.</p>"
     ap_gate = "<p>No active canary approvals.</p>"
+    canary_status = "<p>No active canary runs. Run <code>python -m acs.ops.canary_runner --dry-run</code> to test.</p>"
     try:
         from acs.evaluation.manual_approval_gate import ApprovalGate
         gate = ApprovalGate()
-        latest = gate.get_latest("default")
+        latest = gate.get_latest("public_test_ecommerce")
         if latest and latest.is_valid():
             ap_gate = f"<p class=ok>Approved by {latest.reviewer} on {latest.reviewed_at}</p>"
         elif latest:
             ap_gate = f"<p class=warn>Latest: {latest.decision} by {latest.reviewer}</p>"
     except: pass
+    try:
+        from acs.ops.canary_runner import CanaryRunner
+        cr = CanaryRunner()
+        r = cr.dry_run("public_test_ecommerce")
+        if r.get("status") == "dry_run_complete":
+            canary_status = f"<p class=ok>Canary dry-run: {r.get('status','')}. Steps: {len(r.get('steps',[]))}</p>"
+        else:
+            canary_status = f"<p class=warn>Canary blocked: {r.get('reason','?')}</p>"
+    except Exception as e:
+        canary_status = f"<p class=warn>Canary check: {str(e)[:80]}</p>"
     return f"""<h1>On-Mode Readiness Evaluation</h1>
 <div class="card"><h2>Summary</h2>
 <table><tr><td>Samples</td><td>{rs.sample_count}</td></tr>
@@ -285,6 +296,7 @@ def evaluation_content():
 <div class="card"><h2>Blocking Reasons</h2><ul>{br}</ul></div>
 <div class="card"><h2>Canary Plan</h2>{cp}</div>
 <div class="card"><h2>Rollback Plan</h2>{rp}</div>
+<div class="card"><h2>Canary Status</h2>{canary_status}</div>
 <div class="card"><h2>Manual Approval Status</h2>{ap_gate}</div>
 <div class="card"><p><b>Safety:</b> ACS_MODE=shadow. No auto-switch. Manual approval required for canary.</p></div>"""
 
