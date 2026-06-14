@@ -2855,13 +2855,16 @@ class UniversalMainWindow(QMainWindow):
         self.append_log(f"[变更通知] {message}")
         if os.environ.get("UNIVERSAL_COLLECTOR_SELF_TEST") == "1":
             return True
-        if self.tray_icon:
+        # 窗口最小化或隐藏时不弹托盘气泡，避免 Windows 上抢焦点
+        if self.tray_icon and not self.isMinimized() and self.isVisible():
             self.tray_icon.showMessage(
                 "网页变更提醒",
                 message,
                 QSystemTrayIcon.MessageIcon.Information,
                 8000,
             )
+        else:
+            self.append_log("[变更通知] 窗口已最小化，跳过托盘弹窗避免抢焦点")
         return True
 
     def overview_metrics(self):
