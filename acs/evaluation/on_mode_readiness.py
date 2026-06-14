@@ -39,11 +39,30 @@ def classify_page(url: str, html_preview: str = "", entry: dict = None) -> str:
     if u.endswith(".csv"): return "csv_dataset"
     if u.endswith((".xml", ".rss", ".atom")): return "xml_feed"
     if u.endswith((".txt", ".md", ".robots.txt", ".geojson")): return "text_document"
-    # Product page indicators (e-commerce, product detail, item pages)
+    # ── Product detail page (single item, has explicit product ID) ──
+    detail_indicators = [
+        "/index.html",                           # toscrape detail: ..._1000/index.html
+        "/ajax/product/", "/static/product/",    # webscraper product pages
+        "/allinone/product/",                    # webscraper allinone product
+    ]
+    is_detail = any(x in u for x in detail_indicators)
+    # ── Product category/list page ──
+    list_indicators = [
+        "/catalogue/page-", "/catalogue/category/",
+        "/computers", "/phones", "/tablets",
+        "/allinone", "/static", "/more", "/ajax/",
+        "/test-sites/e-commerce",
+    ]
+    is_list = any(x in u for x in list_indicators)
+    # Distinguish: detail takes priority
+    if is_detail and ("toscrape.com/catalogue" in u or "webscraper.io" in u):
+        return "html_product_detail_page"
+    if is_list and ("toscrape.com" in u or "webscraper.io" in u):
+        return "html_product_list_page"
+    # Generic product indicators (fallback)
     product_indicators = [
-        "/catalogue/", "/product/", "/item/", "/shop/", "/goods/", "/detail/",
-        "/listing/", "/p/", "/dp/", "/products/", "index.html",
-        "toscrape.com/catalogue", "webscraper.io/test-sites/e-commerce",
+        "/product/", "/item/", "/shop/", "/goods/", "/detail/",
+        "/listing/", "/p/", "/dp/", "/products/",
     ]
     if any(x in u for x in product_indicators):
         return "html_product_page"
