@@ -44,6 +44,25 @@ def health():
     })
 
 
+# ── UI (acs_ui/ static files) ──
+_ACS_UI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "acs_ui")
+
+
+@app.route("/")
+def serve_ui_index():
+    """Serve the ACS web UI home page."""
+    from flask import send_from_directory
+    return send_from_directory(_ACS_UI_DIR, "index.html")
+
+
+@app.route("/<path:filename>")
+def serve_ui_static(filename):
+    """Serve acs_ui/ static assets (CSS, JS, etc)."""
+    from flask import send_from_directory
+    return send_from_directory(_ACS_UI_DIR, filename)
+
+
 @app.route("/api/search/searxng/status", methods=["GET"])
 def searxng_status():
     """Health check for local SearXNG instance."""
