@@ -94,7 +94,11 @@ def main():
     from acs.web.server_launcher import check_port
     if not check_port(args.port):
         print(f"[ERROR] 端口 {args.port} 已被占用。")
-        print(f"  请先关闭占用 {args.port} 端口的程序，再重新启动。")
+        print(f"  请先关闭占用 {args.port} 端口的程序，或运行：")
+        print(f"  taskkill //F //PID (netstat -ano ^| findstr :{args.port})")
+        print()
+        print("按任意键关闭本窗口...")
+        input()
         sys.exit(1)
 
     # Start server in background
