@@ -7617,7 +7617,18 @@ from ui_registry import bind_all
 
 _bound = bind_all(UniversalMainWindow)
 
-def run_universal_self_test():
-    from universal_self_test import run_universal_self_test as _run_universal_self_test
 
-    return _run_universal_self_test()
+def run_universal_self_test():
+    """Run the full universal self-test suite (headless)."""
+    from universal_self_test import run_universal_self_test as _run
+    return _run()
+
+
+def run_universal_app():
+    """Launch the PyQt desktop GUI — 'ACS 资料采集助手'."""
+    import sys as _sys
+    app = QApplication(_sys.argv)
+    app.setApplicationName(APP_NAME_CN)
+    window = UniversalMainWindow()
+    window.show()
+    _sys.exit(app.exec())
