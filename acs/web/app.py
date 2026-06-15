@@ -248,6 +248,42 @@ def api_harvest_status():
         "stats": stats,
     })
 
+# ── SearXNG One-Click API ──
+_SEARXNG_ACTIONS = {"status", "setup", "start", "restart"}
+
+
+@app.route("/api/search/searxng/status")
+def api_searxng_status():
+    """Get full SearXNG service status."""
+    try:
+        from acs.local_search.searxng_status import check_full_status
+        return jsonify(check_full_status())
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/search/searxng/<action>", methods=["POST"])
+@require_auth
+def api_searxng_action(action):
+    """Execute a SearXNG management action (setup/start/restart)."""
+    if action not in _SEARXNG_ACTIONS:
+        return jsonify({"error": f"Unknown action: {action}. Allowed: {sorted(_SEARXNG_ACTIONS)}"}), 400
+
+    try:
+        from acs.local_search.searxng_manager import cmd_setup, cmd_start, cmd_status, cmd_restart
+        if action == "setup":
+            result = cmd_setup()
+        elif action == "start":
+            result = cmd_start()
+        elif action == "restart":
+            result = cmd_restart()
+        else:
+            result = cmd_status()
+    except Exception as e:
+        result = {"action": action, "status": "error", "error": str(e)}
+
+    return jsonify(result)
+
 # ── Content helpers ──
 def overview_content():
     d = get_overview_data()
