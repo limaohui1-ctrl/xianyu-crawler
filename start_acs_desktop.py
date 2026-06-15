@@ -134,12 +134,12 @@ def main():
             print("[ERROR] 服务进程已退出")
             sys.exit(1)
 
-    # Open browser
+    # Open browser — navigate to the Flask dashboard, NOT the static file
     if not args.no_browser:
-        from acs.web.browser_open import open_browser
-        index_html = os.path.join(project_root, "acs_ui", "index.html")
-        print(f"[OPEN] 正在打开 {index_html} ...")
-        open_browser(index_html)
+        import webbrowser
+        dashboard_url = f"http://{args.host}:{args.port}/"
+        print(f"[OPEN] 正在打开 {dashboard_url} ...")
+        webbrowser.open(dashboard_url)
 
     print()
     print("==========================================")
