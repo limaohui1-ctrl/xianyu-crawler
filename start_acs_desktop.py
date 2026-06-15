@@ -44,6 +44,52 @@ def main():
         sys.exit(1)
     print("[OK] 依赖已满足")
 
+    # ── Check .env ──
+    env_path = os.path.join(project_root, ".env")
+    env_example_path = os.path.join(project_root, ".env.example")
+    if not os.path.exists(env_path):
+        if os.path.exists(env_example_path):
+            print("[WARN] 未发现 .env 配置文件。")
+            print("       请复制 .env.example 为 .env，并确认 ACS_SEARXNG_BASE_URL=http://127.0.0.1:8080。")
+            print(f"       命令：copy \"{env_example_path}\" \"{env_path}\"")
+        else:
+            print("[ERROR] 缺少 .env.example，发布包可能不完整。")
+            print("        请重新下载完整发布包。")
+        # Don't exit — let user fix and retry
+    else:
+        # Check if env variables are loaded
+        _searxng_url = os.environ.get("ACS_SEARXNG_BASE_URL", "")
+        if not _searxng_url:
+            # Try loading from .env file
+            try:
+                with open(env_path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("ACS_SEARXNG_BASE_URL="):
+                            _searxng_url = line.split("=", 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
+    # ── SearXNG connectivity check ──
+    _searxng_ok = False
+    try:
+        import urllib.request
+        _test_url = f"{_searxng_url or 'http://127.0.0.1:8080'}/search?q=test&format=json"
+        _req = urllib.request.Request(_test_url, headers={"User-Agent": "ACS/1.0"})
+        _resp = urllib.request.urlopen(_req, timeout=5)
+        if _resp.status == 200:
+            print("[OK] 本地 SearXNG 已连接")
+            _searxng_ok = True
+        else:
+            print(f"[WARN] SearXNG 返回状态码 {_resp.status}")
+    except Exception:
+        print("[WARN] 未检测到本地 SearXNG，请先启动 Docker Desktop 和 acs-searxng 容器。")
+        print("        详见 docs/SEARXNG_SETUP.md")
+        _searxng_ok = False
+
+    # No exit — allow ACS to start even without SearXNG
+
     # Check port
     from acs.web.server_launcher import check_port
     if not check_port(args.port):

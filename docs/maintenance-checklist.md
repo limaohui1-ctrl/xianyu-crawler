@@ -22,7 +22,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_release.ps1
 - 任务队列、任务档案、计划采集、变更提醒
 - 文件转表格、AI 表格导出、图片下载
 - 用户数据清理：删除 Key/历史/日志/登录态，保留模板库
-- 旧版闲鱼兼容入口基础自测
+- 旧版入口已归档，不再维护
 
 ## 下一轮拆分建议
 
